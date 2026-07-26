@@ -1,6 +1,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
+  AudioModule,
+  RecordingPresets,
+  createAudioPlayer,
+  setAudioModeAsync,
+  useAudioRecorder,
+  type AudioPlayer,
+} from 'expo-audio';
+import { File, Paths } from 'expo-file-system';
+import { fetch as expoFetch } from 'expo/fetch';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
   Modal,
   Pressable,
   ScrollView,
@@ -14,7 +25,7 @@ import {
   Body, GenieMark, Muted, Waveform,
 } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
-import { DEFAULT_ANSWER, QA_DATABASE, type QA } from '@/data/content';
+import { DEFAULT_ANSWER, type QA } from '@/data/content';
 import { useStore } from '@/state/store';
 
 /**
@@ -22,6 +33,12 @@ import { useStore } from '@/state/store';
  * threading state through navigation params. (Purchase is a basket flow on the
  * game detail screen, not a modal.)
  */
+
+/**
+ * Backend base URL. Must match the PC's WiFi IP — verify with `ipconfig`.
+ * See API_CONTRACT → Base URL.
+ */
+const API_BASE = 'http://192.168.1.101:8000';
 
 type Overlays = {
   openAskGenie: (gameName: string) => void;
@@ -53,26 +70,205 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
 
 function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose: () => void }) {
   const [question, setQuestion] = useState('');
-  const [exchange, setExchange] = useState<QA>(QA_DATABASE[0]);
+  const [exchange, setExchange] = useState<QA>({ question: '', answer: '' });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [recording, setRecording] = useState(false);
 
-  // Reset to the sample exchange each time the sheet is reopened.
+  // expo-audio recorder. This is a hook, so it must be called before any early
+  // return — do not move it below the `if (!gameName)` guard.
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // The player is created fresh per answer (each one is a different MP3), so it
+  // lives in a ref rather than state — we never render from it directly.
+  const playerRef = useRef<AudioPlayer | null>(null);
+
+  // Reset to empty exchange when the sheet is opened
   useEffect(() => {
     if (gameName) {
-      setExchange(QA_DATABASE[0]);
+      setExchange({ question: '', answer: '' });
       setQuestion('');
+      setError(null);
+      setPlaying(false);
+      setRecording(false);
     }
   }, [gameName]);
 
+  // Release the audio player when this component unmounts
+  useEffect(() => {
+    return () => {
+      playerRef.current?.remove();
+      playerRef.current = null;
+    };
+  }, []);
+
   if (!gameName) return null;
 
-  const ask = (text: string) => {
+  const playAnswer = async (text: string) => {
+    try {
+      setPlaying(true);
+      setError(null);
+
+      // Release any player from a previous answer before making a new one
+      playerRef.current?.remove();
+      playerRef.current = null;
+
+      const response = await expoFetch(`${API_BASE}/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`TTS failed: ${response.status}`);
+      }
+
+      // API_CONTRACT: /speak returns raw MP3 bytes (audio/mpeg). It is NOT JSON
+      // and there is no `uri` field. Write the bytes to a cache file, play that.
+      const bytes = await response.bytes();
+      const file = new File(Paths.cache, `genie-answer-${Date.now()}.mp3`);
+      file.write(bytes);
+
+      const player = createAudioPlayer({ uri: file.uri });
+      playerRef.current = player;
+
+      player.addListener('playbackStatusUpdate', (status: any) => {
+        if (status?.didJustFinish) setPlaying(false);
+      });
+
+      player.play();
+    } catch (err) {
+      console.error('Error playing audio:', err);
+      setError(err instanceof Error ? err.message : 'Failed to play audio');
+      setPlaying(false);
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      setError(null);
+
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        setError('Microphone permission denied');
+        return;
+      }
+
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: true,
+      });
+
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecording(true);
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      setError(err instanceof Error ? err.message : 'Failed to start recording');
+      setRecording(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      await recorder.stop();
+      setRecording(false);
+
+      const uri = recorder.uri;
+      if (!uri) {
+        setError('Failed to get recording');
+        return;
+      }
+
+      setLoading(true);
+
+      // API_CONTRACT: /transcribe expects multipart/form-data with a file field
+      // named exactly "audio". Do NOT set Content-Type by hand — fetch has to
+      // generate the multipart boundary itself.
+      const audioFile = new File(uri);
+      const form = new FormData();
+      form.append('audio', audioFile as any);
+
+      const response = await expoFetch(`${API_BASE}/transcribe`, {
+        method: 'POST',
+        body: form,
+      });
+
+      if (!response.ok) {
+        const detail = await response.text();
+        throw new Error(`Transcription failed: ${response.status} — ${detail}`);
+      }
+
+      // API_CONTRACT: the response field is `transcript`, not `text`.
+      const data = await response.json();
+      const transcript: string = data.transcript ?? '';
+
+      if (transcript) {
+        setQuestion(transcript);
+        await ask(transcript);
+      } else {
+        setError('Could not transcribe audio. Try again.');
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error('Error transcribing:', err);
+      setError(err instanceof Error ? err.message : 'Failed to transcribe');
+      setRecording(false);
+      setLoading(false);
+    }
+  };
+
+  const ask = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const match = QA_DATABASE.find((qa) =>
-      qa.question.toLowerCase().includes(trimmed.toLowerCase().slice(0, 12)),
-    );
-    setExchange(match ?? { question: trimmed, answer: DEFAULT_ANSWER });
-    setQuestion('');
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const gameKey = gameName.toLowerCase().replace(/\s+/g, '_');
+      console.log('Asking Genie:', { game: gameKey, question: trimmed });
+
+      // API_CONTRACT: `game` is required in the body as well as the path.
+      // `mode` must be "qa" — underscores only, no hyphens.
+      const response = await expoFetch(`${API_BASE}/games/${gameKey}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          game: gameKey,
+          question: trimmed,
+          mode: 'qa',
+        }),
+      });
+
+      console.log('Response status:', response.status);
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error('API error response:', errorData);
+        throw new Error(`API error: ${response.status} - ${errorData}`);
+      }
+
+      const data = await response.json();
+      setExchange({
+        question: trimmed,
+        answer: data.answer || DEFAULT_ANSWER,
+      });
+      setQuestion('');
+
+      // Automatically play audio after getting answer
+      await playAnswer(data.answer || DEFAULT_ANSWER);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to get answer');
+      console.error('Error asking Genie:', err);
+      setExchange({
+        question: trimmed,
+        answer: DEFAULT_ANSWER,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -95,27 +291,53 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
           </View>
 
           <ScrollView style={styles.askBody} keyboardShouldPersistTaps="handled">
-            <View style={styles.questionBubble}>
-              <Text style={styles.questionText}>{exchange.question}</Text>
-            </View>
+            {exchange.question && (
+              <View style={styles.questionBubble}>
+                <Text style={styles.questionText}>{exchange.question}</Text>
+              </View>
+            )}
 
-            <Body style={{ marginTop: Spacing.four }}>{exchange.answer}</Body>
+            {loading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={Colors.primary} />
+                <Text style={styles.loadingText}>Getting answer...</Text>
+              </View>
+            ) : (
+              <>
+                {exchange.answer && (
+                  <>
+                    <Body style={{ marginTop: Spacing.four }}>{exchange.answer}</Body>
 
-            {/* UI placeholder — no audio is wired until Phase 2. */}
-            <View style={styles.speakingRow}>
-              <Waveform />
-              <Text style={styles.speakingText}>Speaking the answer aloud</Text>
-            </View>
+                    {error && <Text style={styles.errorText}>{error}</Text>}
 
-            <Muted style={{ marginTop: Spacing.five, marginBottom: Spacing.two }}>Try asking</Muted>
-            {QA_DATABASE.slice(1).map((qa) => (
-              <Pressable
-                key={qa.question}
-                onPress={() => setExchange(qa)}
-                style={({ pressed }) => [styles.suggestion, pressed && { opacity: 0.7 }]}>
-                <Text style={styles.suggestionText}>{qa.question}</Text>
-              </Pressable>
-            ))}
+                    {/* Audio playback indicator */}
+                    {playing && (
+                      <View style={styles.speakingRow}>
+                        <Waveform />
+                        <Text style={styles.speakingText}>Playing audio...</Text>
+                      </View>
+                    )}
+
+                    {!playing && exchange.answer && (
+                      <Pressable
+                        onPress={() => playAnswer(exchange.answer)}
+                        style={({ pressed }) => [styles.playButton, pressed && { opacity: 0.7 }]}>
+                        <Ionicons name="volume-high" size={16} color={Colors.onPrimary} />
+                        <Text style={styles.playButtonText}>Play audio</Text>
+                      </Pressable>
+                    )}
+                  </>
+                )}
+
+                {!exchange.answer && !loading && (
+                  <Text style={styles.emptyState}>Ask me anything about the rules!</Text>
+                )}
+
+                {!exchange.answer && !loading && error && (
+                  <Text style={styles.errorText}>{error}</Text>
+                )}
+              </>
+            )}
           </ScrollView>
 
           <View style={styles.askInputRow}>
@@ -127,11 +349,23 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
               style={styles.askInput}
               returnKeyType="send"
               onSubmitEditing={() => ask(question)}
+              editable={!loading && !recording}
             />
             <Pressable
               onPress={() => ask(question)}
-              style={({ pressed }) => [styles.sendButton, pressed && { opacity: 0.7 }]}>
+              disabled={loading}
+              style={({ pressed }) => [styles.sendButton, (pressed || loading) && { opacity: 0.7 }]}>
               <Ionicons name="arrow-up" size={18} color={Colors.onPrimary} />
+            </Pressable>
+            <Pressable
+              onPress={recording ? stopRecording : startRecording}
+              disabled={loading}
+              style={({ pressed }) => [
+                styles.micButton,
+                recording && styles.micButtonActive,
+                (pressed || loading) && { opacity: 0.7 },
+              ]}>
+              <Ionicons name={recording ? 'stop' : 'mic'} size={18} color={Colors.onPrimary} />
             </Pressable>
           </View>
         </View>
@@ -240,7 +474,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  askBody: { paddingHorizontal: Spacing.four },
+  askBody: { paddingHorizontal: Spacing.four, minHeight: 120 },
 
   questionBubble: {
     alignSelf: 'flex-start',
@@ -248,27 +482,62 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     paddingVertical: Spacing.two + 2,
     paddingHorizontal: Spacing.four,
+    marginBottom: Spacing.three,
   },
   questionText: { fontFamily: Type.body, fontSize: 14, fontWeight: '600', color: Colors.onSecondary },
+
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: Spacing.six,
+  },
+  loadingText: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: Spacing.three,
+  },
+
+  emptyState: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: Spacing.four,
+  },
 
   speakingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.four },
   speakingText: { fontFamily: Type.body, fontSize: 12.5, fontStyle: 'italic', color: Colors.primary },
 
-  suggestion: {
+  playButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.primary,
     borderRadius: Radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    marginBottom: Spacing.two,
+    marginTop: Spacing.four,
   },
-  suggestionText: { fontFamily: Type.body, fontSize: 13.5, color: Colors.text },
+  playButtonText: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.onPrimary,
+  },
+
+  errorText: {
+    fontFamily: Type.body,
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontStyle: 'italic',
+    marginTop: Spacing.three,
+  },
 
   askInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: Spacing.two,
     padding: Spacing.four,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
@@ -292,6 +561,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  micButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micButtonActive: {
+    backgroundColor: Colors.secondary,
   },
 
   toastWrap: { position: 'absolute', left: 0, right: 0, bottom: Layout.tabBarHeight + 24, alignItems: 'center' },

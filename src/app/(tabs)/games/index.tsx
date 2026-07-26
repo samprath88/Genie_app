@@ -1,14 +1,14 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '@/components/artwork';
 import { BasketButton } from '@/components/basket-button';
 import { Pill } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
-import { FILTERS, GAMES, priceLabel, type Category, type Game } from '@/data/games';
+import { FILTERS, priceLabel, type Category, type Game } from '@/data/games';
 import { useStore } from '@/state/store';
 
 export default function GamesScreen() {
@@ -16,15 +16,71 @@ export default function GamesScreen() {
   const { isUnlocked } = useStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'All' | Category>('All');
+  const [games, setGames] = useState<Game[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch games from backend on mount
+  useEffect(() => {
+    const fetchGames = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch('http://192.168.1.101:8000/games');
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Transform backend data to match Game type
+        const transformedGames = data.games.map((g: any) => ({
+          id: g.key,
+          name: g.displayName,
+          rating: g.rating || 0,
+          price: g.price || 0,
+          categories: [g.category || 'Strategy'],
+          image: g.thumbnail,
+        }));
+        
+        setGames(transformedGames);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load games');
+        console.error('Error fetching games:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchGames();
+  }, []);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return GAMES.filter((g) => {
+    return games.filter((g) => {
       const matchesFilter = filter === 'All' || g.categories.includes(filter);
       const matchesQuery = !q || g.name.toLowerCase().includes(q);
       return matchesFilter && matchesQuery;
     });
-  }, [query, filter]);
+  }, [query, filter, games]);
+
+  if (loading) {
+    return (
+      <View style={[styles.root, styles.centerContent]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={[styles.root, styles.centerContent]}>
+        <Text style={styles.errorText}>Failed to load games</Text>
+        <Text style={styles.errorDetail}>{error}</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -37,7 +93,6 @@ export default function GamesScreen() {
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View>
-            {/* Translucent panel over artwork, as in the reference. */}
             <Artwork seed="games-shelf" radius={0} style={[styles.banner, { paddingTop: insets.top }]}>
               <View style={styles.bannerInner}>
                 <View style={styles.bannerRow}>
@@ -69,7 +124,7 @@ export default function GamesScreen() {
 
             <Text style={styles.resultCount}>
               {filter === 'All' && !query
-                ? `Showing all ${GAMES.length} games`
+                ? `Showing all ${games.length} games`
                 : `${results.length} game${results.length === 1 ? '' : 's'}`}
             </Text>
           </View>
@@ -118,6 +173,7 @@ function GameCard({ game, owned }: { game: Game; owned: boolean }) {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
+  centerContent: { alignItems: 'center', justifyContent: 'center' },
   list: { maxWidth: Layout.maxContentWidth, width: '100%', alignSelf: 'center' },
   column: { gap: Spacing.three, paddingHorizontal: Layout.screenPadding },
 
@@ -174,6 +230,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: Spacing.six,
   },
+  errorText: {
+    fontFamily: Type.body,
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: Spacing.two,
+  },
+  errorDetail: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
 
   card: {
     flex: 1,
@@ -185,7 +253,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...Shadow.card,
   },
-  // 4:5 portrait, matching the reference cards.
   cardArt: { width: '100%', aspectRatio: 4 / 5, borderRadius: 0 },
 
   tag: {

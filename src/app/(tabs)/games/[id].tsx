@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -15,15 +15,21 @@ import { useStore } from '@/state/store';
 export default function GameDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { isUnlocked, addToBasket } = useStore();
+  const { isUnlocked, addToBasket, setCurrentGame } = useStore();
 
   const game = getGame(id);
+
+  // Set current game in global state when this game is viewed
+  useEffect(() => {
+    if (game) setCurrentGame(game.id);
+  }, [game, setCurrentGame]);
+  
   const [selected, setSelected] = useState<Tier>('bundle');
 
   if (!game) {
     return (
       <View style={styles.missing}>
-        <Text style={styles.missingText}>That game isn’t on the shelf.</Text>
+        <Text style={styles.missingText}>That game isn't on the shelf.</Text>
       </View>
     );
   }
@@ -80,7 +86,7 @@ export default function GameDetailScreen() {
                   <Text style={[styles.featureDescription, locked && styles.lockedText]}>
                     {feature.description}
                   </Text>
-                  {feature.free ? <Text style={styles.freeLabel}>FREE</Text> : null}
+                  
                 </View>
                 <View style={[styles.featureIcon, locked && styles.featureIconLocked]}>
                   <Ionicons

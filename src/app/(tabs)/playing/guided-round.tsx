@@ -1,162 +1,255 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { Artwork } from '@/components/artwork';
-import { useOverlays } from '@/components/overlays';
-import { CircleButton, GenieMark, Waveform } from '@/components/ui';
-import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-import { GUIDED_ROUND } from '@/data/content';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-/** Full-bleed, dark, one step at a time — the most cinematic screen in the app. */
+import { ModeSwitcher } from '@/components/ModeSwitcher';
+import { useOverlays } from '@/components/overlays';
+import { ScreenHeader } from '@/components/screen-header';
+import { GenieMark, SecondaryButton, SectionLabel } from '@/components/ui';
+import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
+import { useStore } from '@/state/store';
+
+interface GuidedStep {
+  title: string;
+  content: string;
+}
+
 export default function GuidedRoundScreen() {
-  const insets = useSafeAreaInsets();
-  const [index, setIndex] = useState(0);
+  const { currentGame } = useStore();
   const { openAskGenie } = useOverlays();
-  const step = GUIDED_ROUND[index];
-  const isLast = index === GUIDED_ROUND.length - 1;
+  const [steps, setSteps] = useState<GuidedStep[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
+  const [showModeSwitcher, setShowModeSwitcher] = useState(false);
+
+  useEffect(() => {
+    const fetchSteps = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch(`http://192.168.1.101:8000/games/${currentGame}/first-round`);
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        const transformedSteps: GuidedStep[] = data.steps.map((s: any) => ({
+          title: s.title || 'Step',
+          content: s.instruction || s.content || '',
+        }));
+        
+        setSteps(transformedSteps);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load guided round');
+        console.error('Error fetching guided round:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSteps();
+  }, [currentGame]);
+
+  if (loading) {
+    return (
+      <View style={[styles.root, styles.centerContent]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (error || steps.length === 0) {
+    return (
+      <View style={[styles.root, styles.centerContent]}>
+        <Text style={styles.errorText}>Failed to load guided first round</Text>
+        {error && <Text style={styles.errorDetail}>{error}</Text>}
+      </View>
+    );
+  }
+
+  const step = steps[activeStep];
 
   return (
-    <Artwork seed={`guided-${index}`} radius={0} style={styles.root}>
-      <View style={[styles.overlay, { paddingTop: insets.top + Spacing.two, paddingBottom: insets.bottom + Spacing.four }]}>
-        <View style={styles.top}>
-          <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/playing'))}
-            hitSlop={10}
-            style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}>
-            <Ionicons name="chevron-back" size={20} color={Colors.textOnDark} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Guided First Round</Text>
-          <View style={styles.back} />
-        </View>
-
-        {/* Progress dots, one per step. */}
-        <View style={styles.dots}>
-          {GUIDED_ROUND.map((_, i) => (
-            <View key={i} style={[styles.dot, i === index && styles.dotActive]} />
-          ))}
-        </View>
-
-        <View style={styles.center}>
-          <Text style={styles.stepLabel}>
-            STEP {index + 1} OF {GUIDED_ROUND.length}
-          </Text>
-          <Text style={styles.headline}>{step.headline}</Text>
-          <Text style={styles.narration}>{step.narration}</Text>
-        </View>
-
-        <View>
-          <View style={styles.statusRow}>
-            <Waveform />
-            <Text style={styles.statusText}>Now playing</Text>
-          </View>
-
-          <View style={styles.nav}>
-            <CircleButton
-              icon="chevron-back"
-              onPress={() => setIndex((i) => Math.max(0, i - 1))}
-              disabled={index === 0}
-            />
-
-            <Pressable
-              onPress={() => openAskGenie('Pandemic')}
-              style={({ pressed }) => [styles.askButton, pressed && { opacity: 0.8 }]}>
-              <GenieMark size={17} color={Colors.textOnDark} />
-              <Text style={styles.askText}>Ask Genie</Text>
-            </Pressable>
-
-            <CircleButton
-              icon={isLast ? 'checkmark' : 'chevron-forward'}
-              variant="primary"
-              onPress={() =>
-                isLast ? router.push('/playing/scoring') : setIndex((i) => i + 1)
-              }
-            />
-          </View>
-        </View>
+    <View style={styles.root}>
+      <View style={styles.headerRow}>
+        <ScreenHeader 
+          title="Guided First Round" 
+          subtitle={currentGame}
+          onBack={() => router.push('/playing')}
+        />
+        <Pressable 
+          onPress={() => setShowModeSwitcher(true)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
+          <Ionicons name="swap-vertical" size={20} color={Colors.textOnDark} />
+        </Pressable>
       </View>
-    </Artwork>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        <SectionLabel>Walking through your first turn</SectionLabel>
+
+        <View style={styles.progressBar}>
+          <View
+            style={[
+              styles.progressFill,
+              { width: `${((activeStep + 1) / steps.length) * 100}%` },
+            ]}
+          />
+        </View>
+
+        <Text style={styles.stepCounter}>
+          Step {activeStep + 1} of {steps.length}
+        </Text>
+
+        <View style={styles.card}>
+          <Text style={styles.stepTitle}>{step.title}</Text>
+          <Text style={styles.stepContent}>{step.content}</Text>
+        </View>
+
+        <View style={styles.buttonRow}>
+          <SecondaryButton
+            label="← Back"
+            onPress={() => setActiveStep((i) => Math.max(0, i - 1))}
+            disabled={activeStep === 0}
+            style={styles.navButton}
+          />
+          <SecondaryButton
+            label="Next →"
+            onPress={() => setActiveStep((i) => Math.min(steps.length - 1, i + 1))}
+            disabled={activeStep === steps.length - 1}
+            style={styles.navButton}
+          />
+        </View>
+
+        <Pressable 
+          onPress={() => openAskGenie(currentGame)}
+          style={({ pressed }) => [styles.infoPanel, pressed && { opacity: 0.7 }]}>
+          <GenieMark size={18} color={Colors.textSecondary} />
+          <Text style={styles.infoText}>
+            Need clarification? Ask Genie any questions about this step.
+          </Text>
+        </Pressable>
+      </ScrollView>
+
+      <ModeSwitcher 
+        visible={showModeSwitcher} 
+        onClose={() => setShowModeSwitcher(false)}
+        currentMode="guided-round"
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, borderRadius: 0 },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(20,14,12,0.58)',
-    paddingHorizontal: Layout.screenPadding,
+  root: { flex: 1, backgroundColor: Colors.background },
+  centerContent: { alignItems: 'center', justifyContent: 'center' },
+  
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    paddingRight: Spacing.three,
+    backgroundColor: Colors.secondary,
   },
-
-  top: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three },
-  back: {
-    width: 34,
-    height: 34,
-    borderRadius: Radius.pill,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+  modeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontFamily: Type.body,
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textOnDark,
+
+  content: {
+    padding: Layout.screenPadding,
+    paddingBottom: Spacing.seven,
+    maxWidth: Layout.maxContentWidth,
+    width: '100%',
+    alignSelf: 'center',
   },
 
-  dots: { flexDirection: 'row', justifyContent: 'center', gap: Spacing.two, marginTop: Spacing.three },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.35)' },
-  dotActive: { width: 22, backgroundColor: Colors.primary },
+  progressBar: {
+    height: 4,
+    backgroundColor: Colors.backgroundInset,
+    borderRadius: 2,
+    marginTop: Spacing.four,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.primary,
+  },
 
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  stepLabel: {
+  stepCounter: {
     fontFamily: Type.body,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 1.6,
-    color: Colors.textOnDarkMuted,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: Spacing.two,
   },
-  headline: {
-    fontFamily: Type.display,
-    fontSize: 32,
-    fontWeight: '700',
-    color: Colors.textOnDark,
-    textAlign: 'center',
-    marginTop: Spacing.three,
+
+  card: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: Spacing.four,
+    marginTop: Spacing.four,
   },
-  narration: {
+  stepTitle: {
+    fontFamily: Type.body,
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: Spacing.two,
+  },
+  stepContent: {
     fontFamily: Type.body,
     fontSize: 15,
     lineHeight: 23,
-    color: Colors.textOnDarkMuted,
-    textAlign: 'center',
-    marginTop: Spacing.four,
+    color: Colors.text,
+    flexWrap: 'wrap',
   },
 
-  statusRow: {
+  buttonRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    marginBottom: Spacing.four,
+    gap: Spacing.three,
+    marginTop: Spacing.five,
   },
-  statusText: { fontFamily: Type.body, fontSize: 12.5, fontWeight: '600', color: Colors.primary },
-
-  nav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: Spacing.three },
-  askButton: {
+  navButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    height: 48,
-    borderRadius: Radius.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
   },
-  askText: { fontFamily: Type.body, fontSize: 14.5, fontWeight: '700', color: Colors.textOnDark },
+
+  infoPanel: {
+    flexDirection: 'row',
+    gap: Spacing.three,
+    backgroundColor: Colors.backgroundInset,
+    borderRadius: Radius.md,
+    padding: Spacing.four,
+    marginTop: Spacing.five,
+  },
+  infoText: {
+    flex: 1,
+    fontFamily: Type.body,
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontStyle: 'italic',
+    color: Colors.textSecondary,
+  },
+
+  errorText: {
+    fontFamily: Type.body,
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: Spacing.two,
+  },
+  errorDetail: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
 });

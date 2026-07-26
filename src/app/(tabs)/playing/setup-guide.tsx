@@ -1,34 +1,107 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork } from '@/components/artwork';
+import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { CircleButton, GenieMark, Pill, Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-import { SETUP_STEPS } from '@/data/content';
+import { useStore } from '@/state/store';
 
-/** Step-by-step physical setup. Dark body, matching the reference. */
+interface SetupStep {
+  title: string;
+  content: string;
+}
+
 export default function SetupGuideScreen() {
+  const { currentGame } = useStore();
   const [index, setIndex] = useState(0);
+  const [steps, setSteps] = useState<SetupStep[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const { openAskGenie } = useOverlays();
-  const step = SETUP_STEPS[index];
+
+  useEffect(() => {
+    const fetchSteps = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch(`http://192.168.1.101:8000/games/${currentGame}/setup`);
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Transform backend steps to match our SetupStep type
+        const transformedSteps: SetupStep[] = data.steps.map((s: any) => ({
+          title: s.title || `Step`,
+          content: s.content || s.instruction || '',
+        }));
+        
+        setSteps(transformedSteps);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load setup steps');
+        console.error('Error fetching setup steps:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSteps();
+  }, [currentGame]);
+
+  if (loading) {
+    return (
+      <View style={[styles.root, styles.centerContent]}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (error || steps.length === 0) {
+    return (
+      <View style={[styles.root, styles.centerContent]}>
+        <Text style={styles.errorText}>Failed to load setup guide</Text>
+        {error && <Text style={styles.errorDetail}>{error}</Text>}
+      </View>
+    );
+  }
+
+  const step = steps[index];
 
   return (
     <View style={styles.root}>
-      <ScreenHeader title="Setup Guide" subtitle="Pandemic" />
+      <View style={styles.headerRow}>
+        <ScreenHeader 
+          title="Setup Guide" 
+          subtitle={currentGame}
+          onBack={() => router.push('/playing')}
+        />
+        <Pressable 
+          onPress={() => setShowModeSwitcher(true)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
+          <Ionicons name="swap-vertical" size={20} color={Colors.textOnDark} />
+        </Pressable>
+      </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
-        {SETUP_STEPS.map((s, i) => (
-          <Pill key={s.tab} label={s.tab} active={i === index} onPress={() => setIndex(i)} />
+        {steps.map((s, i) => (
+          <Pill key={i} label={`Step ${i + 1}`} active={i === index} onPress={() => setIndex(i)} />
         ))}
       </ScrollView>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Artwork seed={`pandemic-setup-${index}`} style={styles.hero} />
+        <Artwork seed={`${currentGame}-setup-${index}`} style={styles.hero} />
 
         <Text style={styles.stepLabel}>
-          Step {index + 1} of {SETUP_STEPS.length} · {step.title}
+          Step {index + 1} of {steps.length} · {step.title}
         </Text>
 
         <View style={styles.panel}>
@@ -40,7 +113,7 @@ export default function SetupGuideScreen() {
         </View>
 
         <Pressable
-          onPress={() => openAskGenie('Pandemic')}
+          onPress={() => openAskGenie(currentGame)}
           style={({ pressed }) => [styles.genieButton, pressed && { opacity: 0.8 }]}>
           <GenieMark size={30} color={Colors.onPrimary} />
         </Pressable>
@@ -55,17 +128,40 @@ export default function SetupGuideScreen() {
           <CircleButton
             icon="chevron-forward"
             variant="primary"
-            onPress={() => setIndex((i) => Math.min(SETUP_STEPS.length - 1, i + 1))}
-            disabled={index === SETUP_STEPS.length - 1}
+            onPress={() => setIndex((i) => Math.min(steps.length - 1, i + 1))}
+            disabled={index === steps.length - 1}
           />
         </View>
       </ScrollView>
+
+      <ModeSwitcher 
+        visible={showModeSwitcher} 
+        onClose={() => setShowModeSwitcher(false)}
+        currentMode="setup-guide"
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
+  centerContent: { alignItems: 'center', justifyContent: 'center' },
+  
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: Spacing.three,
+    backgroundColor: Colors.secondary,
+  },
+  modeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   tabs: { gap: Spacing.two, padding: Layout.screenPadding },
   content: {
     paddingHorizontal: Layout.screenPadding,
@@ -109,5 +205,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: Spacing.five,
+  },
+
+  errorText: {
+    fontFamily: Type.body,
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.text,
+    marginBottom: Spacing.two,
+  },
+  errorDetail: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    color: Colors.textSecondary,
   },
 });

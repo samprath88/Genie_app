@@ -5,7 +5,7 @@ import { StyleSheet, View, type ColorValue } from 'react-native';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 
 /**
- * The three top-level destinations. Each tab owns a nested Stack, so detail
+ * The four top-level destinations. Each tab owns a nested Stack, so detail
  * screens push *inside* the tab and the bar stays visible — which is what the
  * reference shows on every sub-screen.
  *

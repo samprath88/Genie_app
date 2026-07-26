@@ -19,6 +19,7 @@ const KEYS = {
   scores: 'genie:game_scores',
   basket: 'genie:basket',
   seenWelcome: 'genie:seen_welcome',
+  currentGame: 'genie:current_game',
 } as const;
 
 export type NotificationSettings = {
@@ -68,9 +69,9 @@ const DEFAULT_NOTIFICATIONS: NotificationSettings = {
 };
 
 const DEFAULT_PLAYERS: Player[] = [
-  { id: 1, name: 'You (Medic)', color: PlayerColors[0], score: 0 },
-  { id: 2, name: 'Priya (Scientist)', color: PlayerColors[1], score: 0 },
-  { id: 3, name: 'Marco (Dispatcher)', color: PlayerColors[2], score: 0 },
+  { id: 1, name: 'Player 1', color: PlayerColors[0], score: 0 },
+  { id: 2, name: 'Player 2', color: PlayerColors[1], score: 0 },
+  { id: 3, name: 'Player 3', color: PlayerColors[2], score: 0 },
 ];
 
 type Store = {
@@ -94,6 +95,10 @@ type Store = {
 
   notifications: NotificationSettings;
   setNotification: (key: keyof NotificationSettings, value: boolean) => void;
+
+  /** Current game being played/viewed. Used across screens (How-to-Play, Scoring, etc.) */
+  currentGame: string;
+  setCurrentGame: (gameId: string) => void;
 
   players: Player[];
   adjustScore: (playerId: number, delta: number) => void;
@@ -129,6 +134,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [narratorVoice, setVoiceState] = useState<NarratorVoice>('Kore');
   const [autoplay, setAutoplayState] = useState(true);
   const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
+  const [currentGame, setCurrentGameState] = useState('pandemic');
   const [players, setPlayers] = useState<Player[]>(DEFAULT_PLAYERS);
   const [winnerId, setWinnerId] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -137,13 +143,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [games, cart, voice, auto, notifs, scores] = await Promise.all([
+      const [games, cart, voice, auto, notifs, game, scores] = await Promise.all([
         // Catan and Wingspan are pre-owned so the shelf shows both states.
         read<string[]>(KEYS.purchasedGames, ['catan', 'wingspan']),
         read<BasketItem[]>(KEYS.basket, []),
         read<NarratorVoice>(KEYS.narratorVoice, 'Kore'),
         read<boolean>(KEYS.autoplay, true),
         read<NotificationSettings>(KEYS.notifications, DEFAULT_NOTIFICATIONS),
+        read<string>(KEYS.currentGame, 'pandemic'),
         read<{ players: Player[]; winnerId: number | null }>(KEYS.scores, {
           players: DEFAULT_PLAYERS,
           winnerId: null,
@@ -155,6 +162,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setVoiceState(NARRATOR_VOICES.includes(voice) ? voice : 'Kore');
       setAutoplayState(auto);
       setNotifications({ ...DEFAULT_NOTIFICATIONS, ...notifs });
+      setCurrentGameState(game);
       setPlayers(scores.players?.length ? scores.players : DEFAULT_PLAYERS);
       setWinnerId(scores.winnerId ?? null);
       setHydrated(true);
@@ -227,6 +235,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const setCurrentGame = useCallback((gameId: string) => {
+    setCurrentGameState(gameId);
+    write(KEYS.currentGame, gameId);
+  }, []);
+
   const persistScores = useCallback((nextPlayers: Player[], nextWinner: number | null) => {
     write(KEYS.scores, { players: nextPlayers, winnerId: nextWinner });
   }, []);
@@ -278,6 +291,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setAutoplay,
       notifications,
       setNotification,
+      currentGame,
+      setCurrentGame,
       players,
       adjustScore,
       winnerId,
@@ -290,7 +305,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [
       hydrated, purchasedGames, purchase, basket, addToBasket, removeFromBasket, checkout,
       narratorVoice, setNarratorVoice, autoplay, setAutoplay, notifications, setNotification,
-      players, adjustScore, winnerId, declareWinner, resetScores, toast,
+      currentGame, setCurrentGame, players, adjustScore, winnerId, declareWinner, resetScores, toast,
     ],
   );
 
