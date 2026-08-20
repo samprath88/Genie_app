@@ -4,13 +4,6 @@ import { StyleSheet, View, type ColorValue } from 'react-native';
 
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 
-/**
- * The four top-level destinations. Each tab owns a nested Stack, so detail
- * screens push *inside* the tab and the bar stays visible — which is what the
- * reference shows on every sub-screen.
- *
- * The active tab is a filled pill behind the icon, matching the prototype.
- */
 function TabIcon({
   name,
   focused,
@@ -18,7 +11,6 @@ function TabIcon({
 }: {
   name: React.ComponentProps<typeof Ionicons>['name'];
   focused: boolean;
-  // The navigator hands back ColorValue; Ionicons only accepts a plain string.
   color: ColorValue;
 }) {
   return (
@@ -38,9 +30,13 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: Colors.background,
           borderTopColor: Colors.border,
-          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopWidth: 1,
           height: Layout.tabBarHeight,
           paddingTop: Spacing.one,
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
         },
         tabBarLabelStyle: {
           fontFamily: Type.body,

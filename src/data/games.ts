@@ -38,7 +38,7 @@ const FEATURED: Game[] = [
     tagline: 'Trade, build and settle an island that never gives you quite enough wood.',
   },
   {
-    id: 'ticket-to-ride',
+    id: 'ticket_to_ride',
     name: 'Ticket to Ride',
     categories: ['Family'],
     rating: 4.8,
@@ -98,7 +98,7 @@ const CATEGORY_CYCLE: Category[][] = [
 ];
 
 const slugify = (name: string) =>
-  name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
 
 const FILLER: Game[] = FILLER_NAMES.map((name, i) => ({
   id: slugify(name),

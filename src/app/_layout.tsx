@@ -1,4 +1,4 @@
-import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DefaultTheme, Slot, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -6,7 +6,6 @@ import { OverlayProvider } from '@/components/overlays';
 import { Colors } from '@/constants/theme';
 import { StoreProvider } from '@/state/store';
 
-/** GENIE is light-only, so the navigation theme is pinned rather than following the OS. */
 const GenieTheme = {
   ...DefaultTheme,
   colors: {
@@ -25,9 +24,8 @@ export default function RootLayout() {
       <ThemeProvider value={GenieTheme}>
         <StoreProvider>
           <OverlayProvider>
-            {/* Light glyphs: the welcome photo and every header bar are dark. */}
             <StatusBar style="light" />
-            <Stack screenOptions={{ headerShown: false }} />
+            <Slot />
           </OverlayProvider>
         </StoreProvider>
       </ThemeProvider>
