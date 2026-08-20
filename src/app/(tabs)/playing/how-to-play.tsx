@@ -8,8 +8,14 @@ import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { GenieMark, Pill } from '@/components/ui';
-import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
+import { Colors, Layout, Spacing } from '@/constants/theme';
 import { useStore } from '@/state/store';
+
+const GAME_NAMES: Record<string, string> = {
+  pandemic: 'Pandemic',
+  catan: 'Catan',
+  ticket_to_ride: 'Ticket to Ride',
+};
 
 // Type definition for a section/tab
 interface Section {
@@ -78,13 +84,14 @@ export default function HowToPlayScreen() {
   }
 
   const section = sections[active];
+  const gameName = GAME_NAMES[currentGame] || currentGame;
 
   return (
     <View style={styles.root}>
       <View style={styles.headerRow}>
         <ScreenHeader 
           title="How to Play" 
-          subtitle={currentGame}
+          subtitle={gameName}
           onBack={() => router.push('/playing')}
         />
         <Pressable 
