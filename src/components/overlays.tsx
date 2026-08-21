@@ -160,6 +160,14 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         allowsRecording: true,
       });
 
+      // Stop/release any previous recording session before preparing a new one
+      try {
+        await recorder.stop();
+      } catch (e) {
+        // Ignore if not currently recording
+        console.log('Previous recording stopped');
+      }
+
       await recorder.prepareToRecordAsync();
       recorder.record();
       setRecording(true);
