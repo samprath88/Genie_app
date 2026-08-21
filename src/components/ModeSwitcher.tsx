@@ -3,32 +3,24 @@ import { router } from 'expo-router';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors, Radius, Shadow, Spacing, Type } from '@/constants/theme';
-import { FEATURES, type Feature } from '@/data/content';
-import { useStore } from '@/state/store';
 
 interface ModeSwitcherProps {
   visible: boolean;
   onClose: () => void;
-  currentMode: string; // e.g., 'how-to-play', 'scoring', 'setup-guide', 'guided-round', 'about'
+  currentMode: string;
 }
 
 export function ModeSwitcher({ visible, onClose, currentMode }: ModeSwitcherProps) {
-  const { currentGame, isUnlocked } = useStore();
-  const owned = isUnlocked(currentGame);
+  const modes = [
+    { key: 'how-to-play', title: 'How to Play', route: '/playing/how-to-play' },
+    { key: 'setup-guide', title: 'Setup Guide', route: '/playing/setup-guide' },
+    { key: 'guided-round', title: 'First Round', route: '/playing/guided-round' },
+    { key: 'scoring', title: 'Scoring Assist', route: '/playing/scoring' },
+  ];
 
-  const handleModePress = (feature: Feature) => {
-    if (feature.key === currentMode) {
-      // Already on this mode, just close
-      onClose();
-      return;
-    }
-
-    const locked = !feature.free && !owned;
-    if (locked) return; // Can't switch to locked mode
-
-    // Navigate to the feature
-    if (feature.route) {
-      router.push(feature.route as never);
+  const handleModePress = (route: string) => {
+    if (route) {
+      router.push(route as never);
       onClose();
     }
   };
@@ -37,7 +29,6 @@ export function ModeSwitcher({ visible, onClose, currentMode }: ModeSwitcherProp
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.scrim}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>Switch Mode</Text>
@@ -45,36 +36,22 @@ export function ModeSwitcher({ visible, onClose, currentMode }: ModeSwitcherProp
               <Ionicons name="close" size={20} color={Colors.textSecondary} />
             </Pressable>
           </View>
-
-          {FEATURES.map((feature) => {
-            const isActive = feature.key === currentMode;
-            const locked = !feature.free && !owned;
-
+          {modes.map((mode) => {
+            const isActive = mode.key === currentMode;
             return (
               <Pressable
-                key={feature.key}
-                onPress={() => handleModePress(feature)}
-                disabled={locked || isActive}
+                key={mode.key}
+                onPress={() => handleModePress(mode.route)}
+                disabled={isActive}
                 style={({ pressed }) => [
                   styles.modeRow,
                   isActive && styles.modeRowActive,
-                  locked && styles.modeRowLocked,
-                  pressed && !locked && !isActive && { opacity: 0.7 },
+                  pressed && !isActive && { opacity: 0.7 },
                 ]}>
-                {/* Icon */}
-                <View style={[styles.modeIcon, { backgroundColor: feature.accent }]} />
-
-                {/* Text */}
-                <Text style={[styles.modeName, isActive && styles.modeNameActive, locked && styles.modeNameLocked]}>
-                  {feature.title}
+                <Text style={[styles.modeName, isActive && styles.modeNameActive]}>
+                  {mode.title}
                 </Text>
-
-                {/* Right indicator */}
-                <View style={styles.modeRight}>
-                  {isActive && <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />}
-                  {locked && <Ionicons name="lock-closed" size={16} color={Colors.textTertiary} />}
-                  {!isActive && !locked && <Ionicons name="chevron-forward" size={16} color={Colors.textSecondary} />}
-                </View>
+                {isActive && <Ionicons name="checkmark-circle" size={20} color={Colors.primary} />}
               </Pressable>
             );
           })}
@@ -90,7 +67,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.scrim,
     justifyContent: 'flex-end',
   },
-
   sheet: {
     backgroundColor: Colors.background,
     borderTopLeftRadius: Radius.lg,
@@ -98,7 +74,6 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     ...Shadow.modal,
   },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -114,10 +89,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.text,
   },
-
   modeRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
     gap: Spacing.three,
@@ -125,16 +100,6 @@ const styles = StyleSheet.create({
   modeRowActive: {
     backgroundColor: Colors.backgroundInset,
   },
-  modeRowLocked: {
-    opacity: 0.5,
-  },
-
-  modeIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-  },
-
   modeName: {
     flex: 1,
     fontFamily: Type.body,
@@ -145,15 +110,5 @@ const styles = StyleSheet.create({
   modeNameActive: {
     fontWeight: '700',
     color: Colors.primary,
-  },
-  modeNameLocked: {
-    color: Colors.textTertiary,
-  },
-
-  modeRight: {
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

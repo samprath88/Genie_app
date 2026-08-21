@@ -8,7 +8,7 @@ import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { GenieMark, Pill } from '@/components/ui';
-import { Colors, Layout, Spacing } from '@/constants/theme';
+import { Colors, Layout, Radius, Spacing } from '@/constants/theme';
 import { useStore } from '@/state/store';
 
 const GAME_NAMES: Record<string, string> = {
@@ -17,7 +17,6 @@ const GAME_NAMES: Record<string, string> = {
   ticket_to_ride: 'Ticket to Ride',
 };
 
-// Type definition for a section/tab
 interface Section {
   id: string;
   title: string;
@@ -33,7 +32,6 @@ export default function HowToPlayScreen() {
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const { openAskGenie } = useOverlays();
 
-  // Fetch how-to-play content from backend
   useEffect(() => {
     const fetchContent = async () => {
       try {
@@ -47,7 +45,6 @@ export default function HowToPlayScreen() {
         
         const data = await response.json();
         
-        // Transform backend sections to match our Section type
         const transformedSections: Section[] = data.sections.map((s: any) => ({
           id: s.id,
           title: s.title,
@@ -86,6 +83,8 @@ export default function HowToPlayScreen() {
   const section = sections[active];
   const gameName = GAME_NAMES[currentGame] || currentGame;
 
+  console.log('Rendering HowToPlayScreen, showModeSwitcher:', showModeSwitcher);
+
   return (
     <View style={styles.root}>
       <View style={styles.headerRow}>
@@ -95,21 +94,22 @@ export default function HowToPlayScreen() {
           onBack={() => router.push('/playing')}
         />
         <Pressable 
-          onPress={() => setShowModeSwitcher(true)}
-          hitSlop={8}
+          onPress={() => {
+            console.log('*** MODE BUTTON TAP DETECTED ***');
+            setShowModeSwitcher(true);
+          }}
+          hitSlop={20}
           style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
-          <Ionicons name="swap-vertical" size={20} color={Colors.textOnDark} />
+          <Ionicons name="swap-vertical" size={20} color={Colors.onPrimary} />
         </Pressable>
       </View>
 
-      {/* Horizontal tab bar */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
         {sections.map((s, i) => (
           <Pill key={s.id} label={s.title} active={i === active} onPress={() => setActive(i)} />
         ))}
       </ScrollView>
 
-      {/* Content area */}
       <ScrollView contentContainerStyle={styles.content}>
         <Artwork seed={`${currentGame}-how-to-play-${active}`} style={styles.hero} />
 
@@ -127,7 +127,10 @@ export default function HowToPlayScreen() {
 
       <ModeSwitcher 
         visible={showModeSwitcher} 
-        onClose={() => setShowModeSwitcher(false)}
+        onClose={() => {
+          console.log('ModeSwitcher closing');
+          setShowModeSwitcher(false);
+        }}
         currentMode="how-to-play"
       />
     </View>
@@ -142,7 +145,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingRight: Spacing.three,
+    paddingRight: Spacing.four,
+    paddingLeft: Spacing.three,
     backgroundColor: Colors.secondary,
   },
   modeButton: {
@@ -151,6 +155,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: Spacing.two,
   },
   
   tabs: { gap: Spacing.two, paddingHorizontal: Layout.screenPadding, paddingVertical: Spacing.three },
@@ -182,14 +187,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: Spacing.two,
     backgroundColor: Colors.primary,
-    borderRadius: 8,
+    borderRadius: Radius.md,
     paddingVertical: Spacing.three,
     paddingHorizontal: Spacing.four,
   },
   genieButtonText: {
     fontFamily: 'System',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.onPrimary,
   },
   errorText: {
