@@ -1,3 +1,8 @@
+interface ComponentImage {
+  label: string;
+  url: string;
+}
+
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   AudioModule,
@@ -12,6 +17,7 @@ import { fetch as expoFetch } from 'expo/fetch';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -26,19 +32,15 @@ import {
 } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
 import { DEFAULT_ANSWER, type QA } from '@/data/content';
+import { useGameImages } from '@/hooks/useGameImages';
 import { useStore } from '@/state/store';
 
-/**
- * Hosts the Ask Genie sheet and the toast, so any screen can open them without
- * threading state through navigation params. (Purchase is a basket flow on the
- * game detail screen, not a modal.)
- */
-
-/**
- * Backend base URL. Must match the PC's WiFi IP — verify with `ipconfig`.
- * See API_CONTRACT → Base URL.
- */
 const API_BASE = 'http://192.168.1.101:8000';
+
+interface ComponentImage {
+  label: string;
+  url: string;
+}
 
 type Overlays = {
   openAskGenie: (gameName: string) => void;
@@ -54,7 +56,6 @@ export function useOverlays() {
 
 export function OverlayProvider({ children }: { children: React.ReactNode }) {
   const [askGenieFor, setAskGenieFor] = useState<string | null>(null);
-
   const value = useMemo<Overlays>(() => ({ openAskGenie: setAskGenieFor }), []);
 
   return (
@@ -66,25 +67,62 @@ export function OverlayProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/* -------------------------------------------------------- ask genie modal -- */
+// Find the most mentioned component in the answer text
+function findTopComponentMatch(
+  answer: string,
+  components: Record<string, any>
+): ComponentImage | null {
+  if (!components || Object.keys(components).length === 0) {
+    return null;
+  }
+
+  let topMatch: { component: string; count: number; image: ComponentImage } | null = null;
+
+  Object.entries(components).forEach(([componentKey, componentData]) => {
+    if (!componentData.keywords || componentData.keywords.length === 0) return;
+
+    let keywordCount = 0;
+
+    // Count keyword matches in answer (case-insensitive, whole words only)
+    componentData.keywords.forEach((keyword: string) => {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'gi');
+      const matches = answer.match(regex);
+      if (matches) {
+        keywordCount += matches.length;
+      }
+    });
+
+    // Keep track of component with most keyword hits
+    if (keywordCount > 0 && (!topMatch || keywordCount > topMatch.count)) {
+      topMatch = {
+        component: componentKey,
+        count: keywordCount,
+        image: {
+          label: componentData.label || '',
+          url: componentData.url || '',
+        },
+      };
+    }
+  });
+
+  return topMatch?.image || null;
+}
 
 function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose: () => void }) {
+  const gameToLoad = gameName || '';
+  const { images } = useGameImages(gameToLoad);
   const [question, setQuestion] = useState('');
   const [exchange, setExchange] = useState<QA>({ question: '', answer: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [relatedImage, setRelatedImage] = useState<ComponentImage | null>(null) as any;
+  const [showImageModal, setShowImageModal] = useState(false);
 
-  // expo-audio recorder. This is a hook, so it must be called before any early
-  // return — do not move it below the `if (!gameName)` guard.
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-
-  // The player is created fresh per answer (each one is a different MP3), so it
-  // lives in a ref rather than state — we never render from it directly.
   const playerRef = useRef<AudioPlayer | null>(null);
 
-  // Reset to empty exchange when the sheet is opened
   useEffect(() => {
     if (gameName) {
       setExchange({ question: '', answer: '' });
@@ -92,10 +130,11 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
       setError(null);
       setPlaying(false);
       setRecording(false);
+      setRelatedImage(null);
+      setShowImageModal(false);
     }
   }, [gameName]);
 
-  // Release the audio player when this component unmounts
   useEffect(() => {
     return () => {
       playerRef.current?.remove();
@@ -109,8 +148,6 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
     try {
       setPlaying(true);
       setError(null);
-
-      // Release any player from a previous answer before making a new one
       playerRef.current?.remove();
       playerRef.current = null;
 
@@ -124,8 +161,6 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         throw new Error(`TTS failed: ${response.status}`);
       }
 
-      // API_CONTRACT: /speak returns raw MP3 bytes (audio/mpeg). It is NOT JSON
-      // and there is no `uri` field. Write the bytes to a cache file, play that.
       const bytes = await response.bytes();
       const file = new File(Paths.cache, `genie-answer-${Date.now()}.mp3`);
       file.write(bytes);
@@ -148,7 +183,6 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
   const startRecording = async () => {
     try {
       setError(null);
-
       const permission = await AudioModule.requestRecordingPermissionsAsync();
       if (!permission.granted) {
         setError('Microphone permission denied');
@@ -160,11 +194,9 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         allowsRecording: true,
       });
 
-      // Stop/release any previous recording session before preparing a new one
       try {
         await recorder.stop();
       } catch (e) {
-        // Ignore if not currently recording
         console.log('Previous recording stopped');
       }
 
@@ -191,9 +223,6 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
 
       setLoading(true);
 
-      // API_CONTRACT: /transcribe expects multipart/form-data with a file field
-      // named exactly "audio". Do NOT set Content-Type by hand — fetch has to
-      // generate the multipart boundary itself.
       const audioFile = new File(uri);
       const form = new FormData();
       form.append('audio', audioFile as any);
@@ -208,7 +237,6 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         throw new Error(`Transcription failed: ${response.status} — ${detail}`);
       }
 
-      // API_CONTRACT: the response field is `transcript`, not `text`.
       const data = await response.json();
       const transcript: string = data.transcript ?? '';
 
@@ -234,12 +262,11 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
     try {
       setLoading(true);
       setError(null);
+      setRelatedImage(null);
 
       const gameKey = gameName.toLowerCase().replace(/\s+/g, '_');
       console.log('Asking Genie:', { game: gameKey, question: trimmed });
 
-      // API_CONTRACT: `game` is required in the body as well as the path.
-      // `mode` must be "qa" — underscores only, no hyphens.
       const response = await expoFetch(`${API_BASE}/games/${gameKey}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -259,14 +286,23 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
       }
 
       const data = await response.json();
+      const answer = data.answer || DEFAULT_ANSWER;
+
       setExchange({
         question: trimmed,
-        answer: data.answer || DEFAULT_ANSWER,
+        answer,
       });
-      setQuestion('');
 
-      // Automatically play audio after getting answer
-      await playAnswer(data.answer || DEFAULT_ANSWER);
+      // Find the top component match in the answer
+      if (images && images.components) {
+        const topMatch = findTopComponentMatch(answer, images.components);
+        if (topMatch) {
+          setRelatedImage(topMatch);
+        }
+      }
+
+      setQuestion('');
+      await playAnswer(answer);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to get answer');
       console.error('Error asking Genie:', err);
@@ -280,109 +316,152 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
   };
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.sheetScrim}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+    <>
+      <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+        <View style={styles.sheetScrim}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
 
-        <View style={[styles.sheet, styles.askSheet]}>
-          <View style={styles.grabber} />
+          <View style={[styles.sheet, styles.askSheet]}>
+            <View style={styles.grabber} />
 
-          <View style={styles.askHeader}>
-            <GenieMark size={26} />
-            <View style={{ flex: 1, marginLeft: Spacing.three }}>
-              <Text style={styles.askTitle}>Ask Genie</Text>
-              <Muted style={{ fontSize: 12 }}>{gameName} · voice or type</Muted>
+            <View style={styles.askHeader}>
+              <GenieMark size={26} />
+              <View style={{ flex: 1, marginLeft: Spacing.three }}>
+                <Text style={styles.askTitle}>Ask Genie</Text>
+                <Muted style={{ fontSize: 12 }}>{gameName} · voice or type</Muted>
+              </View>
+              <Pressable onPress={onClose} hitSlop={8} style={styles.askClose}>
+                <Ionicons name="close" size={18} color={Colors.textSecondary} />
+              </Pressable>
             </View>
-            <Pressable onPress={onClose} hitSlop={8} style={styles.askClose}>
-              <Ionicons name="close" size={18} color={Colors.textSecondary} />
-            </Pressable>
-          </View>
 
-          <ScrollView style={styles.askBody} keyboardShouldPersistTaps="handled">
-            {exchange.question && (
-              <View style={styles.questionBubble}>
-                <Text style={styles.questionText}>{exchange.question}</Text>
-              </View>
-            )}
+            <ScrollView style={styles.askBody} keyboardShouldPersistTaps="handled">
+              {exchange.question && (
+                <View style={styles.questionBubble}>
+                  <Text style={styles.questionText}>{exchange.question}</Text>
+                </View>
+              )}
 
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.loadingText}>Getting answer...</Text>
-              </View>
-            ) : (
-              <>
-                {exchange.answer && (
-                  <>
-                    <Body style={{ marginTop: Spacing.four }}>{exchange.answer}</Body>
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color={Colors.primary} />
+                  <Text style={styles.loadingText}>Getting answer...</Text>
+                </View>
+              ) : (
+                <>
+                  {exchange.answer && (
+                    <>
+                      <Body style={{ marginTop: Spacing.four }}>{exchange.answer}</Body>
 
-                    {error && <Text style={styles.errorText}>{error}</Text>}
+                      {relatedImage && (
+                        <Pressable
+                          onPress={() => setShowImageModal(true)}
+                          style={styles.relatedImageCard}>
+                          <Image 
+                            source={{ uri: relatedImage.url }} 
+                            style={styles.relatedImageThumbnail}
+                            resizeMode="cover"
+                          />
+                          <View style={styles.relatedImageLabel}>
+                            <Text style={styles.relatedImageLabelText}>{relatedImage.label}</Text>
+                            <Ionicons name="expand" size={14} color={Colors.textSecondary} />
+                          </View>
+                        </Pressable>
+                      )}
 
-                    {/* Audio playback indicator */}
-                    {playing && (
-                      <View style={styles.speakingRow}>
-                        <Waveform />
-                        <Text style={styles.speakingText}>Playing audio...</Text>
-                      </View>
-                    )}
+                      {error && <Text style={styles.errorText}>{error}</Text>}
 
-                    {!playing && exchange.answer && (
-                      <Pressable
-                        onPress={() => playAnswer(exchange.answer)}
-                        style={({ pressed }) => [styles.playButton, pressed && { opacity: 0.7 }]}>
-                        <Ionicons name="volume-high" size={16} color={Colors.onPrimary} />
-                        <Text style={styles.playButtonText}>Play audio</Text>
-                      </Pressable>
-                    )}
-                  </>
-                )}
+                      {playing && (
+                        <View style={styles.speakingRow}>
+                          <Waveform />
+                          <Text style={styles.speakingText}>Playing audio...</Text>
+                        </View>
+                      )}
 
-                {!exchange.answer && !loading && (
-                  <Text style={styles.emptyState}>Ask me anything about the rules!</Text>
-                )}
+                      {!playing && exchange.answer && (
+                        <Pressable
+                          onPress={() => playAnswer(exchange.answer)}
+                          style={({ pressed }) => [styles.playButton, pressed && { opacity: 0.7 }]}>
+                          <Ionicons name="volume-high" size={16} color={Colors.onPrimary} />
+                          <Text style={styles.playButtonText}>Play audio</Text>
+                        </Pressable>
+                      )}
+                    </>
+                  )}
 
-                {!exchange.answer && !loading && error && (
-                  <Text style={styles.errorText}>{error}</Text>
-                )}
-              </>
-            )}
-          </ScrollView>
+                  {!exchange.answer && !loading && (
+                    <Text style={styles.emptyState}>Ask me anything about the rules!</Text>
+                  )}
 
-          <View style={styles.askInputRow}>
-            <TextInput
-              value={question}
-              onChangeText={setQuestion}
-              placeholder="Type your question..."
-              placeholderTextColor={Colors.textTertiary}
-              style={styles.askInput}
-              returnKeyType="send"
-              onSubmitEditing={() => ask(question)}
-              editable={!loading && !recording}
-            />
-            <Pressable
-              onPress={() => ask(question)}
-              disabled={loading}
-              style={({ pressed }) => [styles.sendButton, (pressed || loading) && { opacity: 0.7 }]}>
-              <Ionicons name="arrow-up" size={18} color={Colors.onPrimary} />
-            </Pressable>
-            <Pressable
-              onPress={recording ? stopRecording : startRecording}
-              disabled={loading}
-              style={({ pressed }) => [
-                styles.micButton,
-                recording && styles.micButtonActive,
-                (pressed || loading) && { opacity: 0.7 },
-              ]}>
-              <Ionicons name={recording ? 'stop' : 'mic'} size={18} color={Colors.onPrimary} />
-            </Pressable>
+                  {!exchange.answer && !loading && error && (
+                    <Text style={styles.errorText}>{error}</Text>
+                  )}
+                </>
+              )}
+            </ScrollView>
+
+            <View style={styles.askInputRow}>
+              <TextInput
+                value={question}
+                onChangeText={setQuestion}
+                placeholder="Type your question..."
+                placeholderTextColor={Colors.textTertiary}
+                style={styles.askInput}
+                returnKeyType="send"
+                onSubmitEditing={() => ask(question)}
+                editable={!loading && !recording}
+              />
+              <Pressable
+                onPress={() => ask(question)}
+                disabled={loading}
+                style={({ pressed }) => [styles.sendButton, (pressed || loading) && { opacity: 0.7 }]}>
+                <Ionicons name="arrow-up" size={18} color={Colors.onPrimary} />
+              </Pressable>
+              <Pressable
+                onPress={recording ? stopRecording : startRecording}
+                disabled={loading}
+                style={({ pressed }) => [
+                  styles.micButton,
+                  recording && styles.micButtonActive,
+                  (pressed || loading) && { opacity: 0.7 },
+                ]}>
+                <Ionicons name={recording ? 'stop' : 'mic'} size={18} color={Colors.onPrimary} />
+              </Pressable>
+            </View>
           </View>
         </View>
-      </View>
-    </Modal>
+      </Modal>
+
+      {/* Full-screen image modal */}
+      <Modal visible={showImageModal} transparent animationType="fade" onRequestClose={() => setShowImageModal(false)}>
+        <View style={styles.imageModalScrim}>
+          <Pressable 
+            style={StyleSheet.absoluteFill} 
+            onPress={() => setShowImageModal(false)} 
+          />
+          
+          {relatedImage && (
+            <View style={styles.imageModalContainer}>
+              <Pressable 
+                style={styles.imageCloseButton}
+                onPress={() => setShowImageModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.text} />
+              </Pressable>
+              
+              <Image 
+                source={{ uri: relatedImage.url }} 
+                style={styles.imageModalImage}
+                resizeMode="contain"
+              />
+              
+              <Text style={styles.imageModalLabel}>{relatedImage.label}</Text>
+            </View>
+          )}
+        </View>
+      </Modal>
+    </>
   );
 }
-
-/* ------------------------------------------------------------------ toast -- */
 
 function Toast() {
   const { toast, clearToast } = useStore();
@@ -394,6 +473,7 @@ function Toast() {
   }, [toast, clearToast]);
 
   if (!toast) return null;
+
   return (
     <View style={styles.toastWrap} pointerEvents="none">
       <View style={styles.toast}>
@@ -417,47 +497,6 @@ const styles = StyleSheet.create({
     ...Shadow.modal,
   },
 
-  unlockHero: { height: 150, borderRadius: 0 },
-  sheetClose: {
-    position: 'absolute',
-    top: Spacing.three,
-    right: Spacing.three,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sheetBody: { padding: Spacing.five },
-
-  unlockTitle: { fontFamily: Type.display, fontSize: 25, fontWeight: '700', color: Colors.text },
-
-  checklist: { marginTop: Spacing.five, gap: Spacing.three },
-  checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.three },
-  checkDot: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: Colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 1,
-  },
-  checkText: { flex: 1, fontFamily: Type.body, fontSize: 14, lineHeight: 20 },
-  checkTextBold: { fontWeight: '700', color: Colors.text },
-  checkTextMuted: { color: Colors.textSecondary },
-
-  price: {
-    fontFamily: Type.display,
-    fontSize: 34,
-    fontWeight: '700',
-    color: Colors.text,
-    textAlign: 'center',
-    marginTop: Spacing.five,
-  },
-  priceFine: { textAlign: 'center', fontSize: 12, marginTop: Spacing.one },
-
   askSheet: { paddingTop: Spacing.two },
   grabber: {
     width: 38,
@@ -467,6 +506,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: Spacing.three,
   },
+
   askHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -482,6 +522,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   askBody: { paddingHorizontal: Spacing.four, minHeight: 120 },
 
   questionBubble: {
@@ -511,6 +552,60 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
     marginTop: Spacing.four,
+  },
+
+  relatedImageCard: {
+    marginTop: Spacing.four,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  relatedImageThumbnail: {
+    width: '100%',
+    height: 160,
+  },
+  relatedImageLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.three,
+    backgroundColor: Colors.backgroundInset,
+  },
+  relatedImageLabelText: {
+    fontFamily: Type.body,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+
+  imageModalScrim: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContainer: {
+    width: '90%',
+    maxWidth: 400,
+  },
+  imageCloseButton: {
+    alignSelf: 'flex-end',
+    marginBottom: Spacing.three,
+    padding: Spacing.two,
+  },
+  imageModalImage: {
+    width: '100%',
+    height: 400,
+  },
+  imageModalLabel: {
+    fontFamily: Type.body,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.onPrimary,
+    marginTop: Spacing.three,
+    textAlign: 'center',
   },
 
   speakingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.four },

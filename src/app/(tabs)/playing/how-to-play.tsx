@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork } from '@/components/artwork';
 import { ModeSwitcher } from '@/components/ModeSwitcher';
@@ -9,6 +9,7 @@ import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { GenieMark, Pill } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing } from '@/constants/theme';
+import { useGameImages } from '@/hooks/useGameImages';
 import { useStore } from '@/state/store';
 
 const GAME_NAMES: Record<string, string> = {
@@ -25,6 +26,7 @@ interface Section {
 
 export default function HowToPlayScreen() {
   const { currentGame } = useStore();
+  const { images } = useGameImages(currentGame);
   const [active, setActive] = useState(0);
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,8 +84,7 @@ export default function HowToPlayScreen() {
 
   const section = sections[active];
   const gameName = GAME_NAMES[currentGame] || currentGame;
-
-  console.log('Rendering HowToPlayScreen, showModeSwitcher:', showModeSwitcher);
+  const coverImage = images?.theme?.cover?.url;
 
   return (
     <View style={styles.root}>
@@ -94,10 +95,7 @@ export default function HowToPlayScreen() {
           onBack={() => router.push('/playing')}
         />
         <Pressable 
-          onPress={() => {
-            console.log('*** MODE BUTTON TAP DETECTED ***');
-            setShowModeSwitcher(true);
-          }}
+          onPress={() => setShowModeSwitcher(true)}
           hitSlop={20}
           style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
           <Ionicons name="swap-vertical" size={20} color={Colors.onPrimary} />
@@ -111,7 +109,15 @@ export default function HowToPlayScreen() {
       </ScrollView>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <Artwork seed={`${currentGame}-how-to-play-${active}`} style={styles.hero} />
+        {coverImage ? (
+          <Image 
+            source={{ uri: coverImage }} 
+            style={styles.heroImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <Artwork seed={`${currentGame}-how-to-play-${active}`} style={styles.hero} />
+        )}
 
         <Text style={styles.sectionTitle}>{section.title}</Text>
 
@@ -127,10 +133,7 @@ export default function HowToPlayScreen() {
 
       <ModeSwitcher 
         visible={showModeSwitcher} 
-        onClose={() => {
-          console.log('ModeSwitcher closing');
-          setShowModeSwitcher(false);
-        }}
+        onClose={() => setShowModeSwitcher(false)}
         currentMode="how-to-play"
       />
     </View>
@@ -167,6 +170,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   hero: { width: '100%', height: 190, borderRadius: 8, marginBottom: Spacing.four },
+  heroImage: { width: '100%', height: 240, borderRadius: 8, marginBottom: Spacing.four },
   sectionTitle: {
     fontFamily: 'System',
     fontSize: 22,

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
@@ -9,6 +9,13 @@ import { ScreenHeader } from '@/components/screen-header';
 import { GenieMark, SecondaryButton, SectionLabel } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 import { useStore } from '@/state/store';
+import { useGameImages } from '@/hooks/useGameImages';
+
+const GAME_NAMES: Record<string, string> = {
+  pandemic: 'Pandemic',
+  catan: 'Catan',
+  ticket_to_ride: 'Ticket to Ride',
+};
 
 interface GuidedStep {
   title: string;
@@ -17,6 +24,7 @@ interface GuidedStep {
 
 export default function GuidedRoundScreen() {
   const { currentGame } = useStore();
+  const { images } = useGameImages(currentGame);
   const { openAskGenie } = useOverlays();
   const [steps, setSteps] = useState<GuidedStep[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,11 +38,11 @@ export default function GuidedRoundScreen() {
         setLoading(true);
         setError(null);
         const response = await fetch(`http://192.168.1.101:8000/games/${currentGame}/first-round`);
-
+        
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
         }
-
+        
         const data = await response.json();
         
         const transformedSteps: GuidedStep[] = data.steps.map((s: any) => ({
@@ -72,24 +80,34 @@ export default function GuidedRoundScreen() {
   }
 
   const step = steps[activeStep];
+  const gameName = GAME_NAMES[currentGame] || currentGame;
+  const firstRoundImage = images?.theme?.first_round?.url;
 
   return (
     <View style={styles.root}>
       <View style={styles.headerRow}>
         <ScreenHeader 
           title="Guided First Round" 
-          subtitle={currentGame}
+          subtitle={gameName}
           onBack={() => router.push('/playing')}
         />
         <Pressable 
           onPress={() => setShowModeSwitcher(true)}
-          hitSlop={8}
+          hitSlop={20}
           style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
-          <Ionicons name="swap-vertical" size={20} color={Colors.textOnDark} />
+          <Ionicons name="swap-vertical" size={20} color={Colors.onPrimary} />
         </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
+        {firstRoundImage && (
+          <Image 
+            source={{ uri: firstRoundImage }} 
+            style={styles.heroImage}
+            resizeMode="cover"
+          />
+        )}
+
         <SectionLabel>Walking through your first turn</SectionLabel>
 
         <View style={styles.progressBar}>
@@ -161,6 +179,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: Spacing.two,
   },
 
   content: {
@@ -170,6 +189,8 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+
+  heroImage: { width: '100%', height: 240, borderRadius: 8, marginBottom: Spacing.four },
 
   progressBar: {
     height: 4,
