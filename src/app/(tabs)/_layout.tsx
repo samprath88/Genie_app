@@ -1,75 +1,70 @@
+import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
-import { StyleSheet, View, type ColorValue } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-
-function TabIcon({
-  name,
-  focused,
-  color,
+function TabButton({
+  icon,
+  label,
+  accessibilityState,
+  onPress,
+  style,
 }: {
-  name: React.ComponentProps<typeof Ionicons>['name'];
-  focused: boolean;
-  color: ColorValue;
-}) {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  label: string;
+} & any) {
+  const focused = accessibilityState?.selected ?? false;
+
   return (
-    <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-      <Ionicons name={name} size={20} color={color as string} />
-    </View>
+    <Pressable onPress={onPress} style={[style, styles.button]}>
+      <View style={[styles.item, focused && styles.itemActive]}>
+        <Ionicons name={icon} size={20} color={focused ? Colors.text : Colors.textSecondary} />
+        <Text style={[styles.label, focused && styles.labelActive]}>{label}</Text>
+      </View>
+    </Pressable>
   );
 }
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: Colors.text,
-        tabBarInactiveTintColor: Colors.textSecondary,
         tabBarStyle: {
           backgroundColor: Colors.background,
           borderTopColor: Colors.border,
           borderTopWidth: 1,
-          height: Layout.tabBarHeight,
+          height: Layout.tabBarHeight + insets.bottom,
           paddingTop: Spacing.one,
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-        },
-        tabBarLabelStyle: {
-          fontFamily: Type.body,
-          fontSize: 11,
-          fontWeight: '600',
+          paddingBottom: insets.bottom,
         },
       }}>
-      <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarIcon: (props) => <TabIcon name="home-outline" {...props} />,
-        }}
-      />
       <Tabs.Screen
         name="games"
         options={{
           title: 'Games',
-          tabBarIcon: (props) => <TabIcon name="grid" {...props} />,
+          tabBarButton: (props) => <TabButton {...props} icon="cube-outline" label="Games" />,
         }}
       />
       <Tabs.Screen
         name="playing"
         options={{
           title: 'Playing',
-          tabBarIcon: (props) => <TabIcon name="play-circle-outline" {...props} />,
+          tabBarButton: (props) => (
+            <TabButton {...props} icon="play-circle-outline" label="Playing" />
+          ),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: (props) => <TabIcon name="person-outline" {...props} />,
+          tabBarButton: (props) => (
+            <TabButton {...props} icon="person-circle-outline" label="Profile" />
+          ),
         }}
       />
     </Tabs>
@@ -77,10 +72,21 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  iconWrap: {
+  button: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  item: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.one,
-    borderRadius: Radius.pill,
+    paddingVertical: Spacing.two,
+    borderRadius: Radius.lg,
   },
-  iconWrapActive: { backgroundColor: Colors.primarySoft },
+  itemActive: { backgroundColor: Colors.primarySoft },
+  label: {
+    fontFamily: Type.body,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  labelActive: { fontWeight: '700', color: Colors.text },
 });

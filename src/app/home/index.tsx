@@ -10,8 +10,8 @@ import { GenieMark, PrimaryButton, Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 
 /**
- * Home / welcome — now the first tab. Kept intentionally simple for the
- * foundation build; future Home views push onto this tab's stack.
+ * Home / welcome — the app's entry screen, shown before the tabbed app.
+ * Kept intentionally simple for the foundation build.
  */
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -27,8 +27,7 @@ export default function HomeScreen() {
         </View>
       </Artwork>
 
-      {/* No bottom inset here — the tab bar already clears the safe area. */}
-      <View style={styles.panel}>
+      <View style={[styles.panel, { paddingBottom: insets.bottom + Spacing.five }]}>
         <View style={styles.brand}>
           <GenieMark size={30} />
           <Text style={styles.wordmark}>GENIE</Text>
@@ -44,7 +43,7 @@ export default function HomeScreen() {
           — so you just play.
         </Text>
 
-        <PrimaryButton label="Get started" onPress={() => router.push('/games')} style={styles.cta} />
+        <PrimaryButton label="Get started" onPress={() => router.replace('/games')} style={styles.cta} />
 
         <Pressable
           onPress={() => setTourPlaying((p) => !p)}
@@ -76,7 +75,6 @@ const styles = StyleSheet.create({
     marginTop: -Radius.xl,
     paddingHorizontal: Spacing.five,
     paddingTop: Spacing.five,
-    paddingBottom: Spacing.five,
     width: '100%',
     maxWidth: Layout.maxContentWidth,
     alignSelf: 'center',

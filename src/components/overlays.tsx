@@ -274,6 +274,7 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
           game: gameKey,
           question: trimmed,
           mode: 'qa',
+          provider: 'deepseek',
         }),
       });
 

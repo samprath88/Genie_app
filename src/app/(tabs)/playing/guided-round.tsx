@@ -8,8 +8,8 @@ import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { GenieMark, SecondaryButton, SectionLabel } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-import { useStore } from '@/state/store';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useStore } from '@/state/store';
 
 const GAME_NAMES: Record<string, string> = {
   pandemic: 'Pandemic',
@@ -99,7 +99,7 @@ export default function GuidedRoundScreen() {
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
         {firstRoundImage && (
           <Image 
             source={{ uri: firstRoundImage }} 
@@ -184,7 +184,6 @@ const styles = StyleSheet.create({
 
   content: {
     padding: Layout.screenPadding,
-    paddingBottom: Spacing.seven,
     maxWidth: Layout.maxContentWidth,
     width: '100%',
     alignSelf: 'center',

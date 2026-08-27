@@ -9,8 +9,8 @@ import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { CircleButton, GenieMark, Pill, Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-import { useStore } from '@/state/store';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useStore } from '@/state/store';
 
 const GAME_NAMES: Record<string, string> = {
   pandemic: 'Pandemic',
@@ -28,7 +28,6 @@ interface ComponentImage {
   url: string;
 }
 
-// Find the most mentioned component in step text
 function findTopComponentMatch(
   stepText: string,
   components: Record<string, any>
@@ -109,7 +108,6 @@ export default function SetupGuideScreen() {
     fetchSteps();
   }, [currentGame]);
 
-  // Update component image when step changes
   useEffect(() => {
     if (steps.length > 0 && images?.components) {
       const currentStep = steps[index];
@@ -163,7 +161,7 @@ export default function SetupGuideScreen() {
           ))}
         </ScrollView>
 
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
           {setupImage ? (
             <Image 
               source={{ uri: setupImage }} 
@@ -231,7 +229,6 @@ export default function SetupGuideScreen() {
         />
       </View>
 
-      {/* Full-screen image modal */}
       <Modal visible={showImageModal} transparent animationType="fade" onRequestClose={() => setShowImageModal(false)}>
         <View style={styles.imageModalScrim}>
           <Pressable 
@@ -285,7 +282,6 @@ const styles = StyleSheet.create({
   tabs: { gap: Spacing.two, padding: Layout.screenPadding },
   content: {
     paddingHorizontal: Layout.screenPadding,
-    paddingBottom: Spacing.six,
     maxWidth: Layout.maxContentWidth,
     width: '100%',
     alignSelf: 'center',

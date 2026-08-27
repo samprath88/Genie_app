@@ -8,8 +8,8 @@ import { Artwork } from '@/components/artwork';
 import { Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 import { getGame } from '@/data/games';
-import { useStore } from '@/state/store';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useStore } from '@/state/store';
 
 const API_BASE = 'http://192.168.1.101:8000';
 
@@ -18,10 +18,6 @@ interface IntroData {
   content: string;
 }
 
-/**
- * "What's It All About" — the free hook. Fetches intro from backend and displays
- * cover image. Same as the Playing screen's narration but reachable before purchase.
- */
 export default function PreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -35,7 +31,6 @@ export default function PreviewScreen() {
   const owned = isUnlocked(game.id);
   const { images } = useGameImages(game.id);
 
-  // Fetch intro from backend
   useEffect(() => {
     const fetchIntro = async () => {
       try {
@@ -64,7 +59,7 @@ export default function PreviewScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
         {coverImage ? (
           <Image
             source={{ uri: coverImage }}

@@ -1,7 +1,7 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '@/components/artwork';
@@ -10,6 +10,8 @@ import { Pill } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
 import { FILTERS, priceLabel, type Category, type Game } from '@/data/games';
 import { useStore } from '@/state/store';
+
+const API_BASE = 'http://192.168.1.101:8000';
 
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
@@ -20,21 +22,19 @@ export default function GamesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch games from backend on mount
   useEffect(() => {
     const fetchGames = async () => {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch('http://192.168.1.101:8000/games');
-        
+        const response = await fetch(`${API_BASE}/games`);
+
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
         }
-        
+
         const data = await response.json();
-        
-        // Transform backend data to match Game type
+
         const transformedGames = data.games.map((g: any) => ({
           id: g.key,
           name: g.displayName,
@@ -43,7 +43,7 @@ export default function GamesScreen() {
           categories: [g.category || 'Strategy'],
           image: g.thumbnail,
         }));
-        
+
         setGames(transformedGames);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load games');
@@ -89,7 +89,7 @@ export default function GamesScreen() {
         keyExtractor={(g) => g.id}
         numColumns={2}
         columnWrapperStyle={styles.column}
-        contentContainerStyle={[styles.list, { paddingBottom: Spacing.seven }]}
+        contentContainerStyle={[styles.list, { paddingBottom: Layout.tabBarHeight + 10 }]}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View>
@@ -137,26 +137,42 @@ export default function GamesScreen() {
 }
 
 function GameCard({ game, owned }: { game: Game; owned: boolean }) {
+  const [imageLoading, setImageLoading] = useState(true);
+  const coverImageUrl = `${API_BASE}/games/${game.id}/images`;
+
+  const getCoverImage = async () => {
+    try {
+      const response = await fetch(coverImageUrl);
+      if (response.ok) {
+        const data = await response.json();
+        return data.theme?.cover?.url || null;
+      }
+    } catch (err) {
+      console.error('Error fetching cover image:', err);
+    }
+    return null;
+  };
+
   return (
     <Pressable
       onPress={() => router.push(`/games/${game.id}`)}
       style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
-      <Artwork seed={game.id} label={game.name} style={styles.cardArt}>
-        <View style={styles.tag}>
-          <Text style={styles.tagText}>{game.categories[0].toUpperCase()}</Text>
-        </View>
+      <GameCardImage gameId={game.id} gameName={game.name} />
 
-        <View style={styles.rating}>
-          <Ionicons name="star" size={10} color={Colors.primary} />
-          <Text style={styles.ratingText}>{game.rating.toFixed(1)}</Text>
-        </View>
+      <View style={styles.tag}>
+        <Text style={styles.tagText}>{game.categories[0].toUpperCase()}</Text>
+      </View>
 
-        {owned ? (
-          <View style={styles.ownedBadge}>
-            <Ionicons name="checkmark" size={13} color={Colors.onPrimary} />
-          </View>
-        ) : null}
-      </Artwork>
+      <View style={styles.rating}>
+        <Ionicons name="star" size={10} color={Colors.primary} />
+        <Text style={styles.ratingText}>{game.rating.toFixed(1)}</Text>
+      </View>
+
+      {owned ? (
+        <View style={styles.ownedBadge}>
+          <Ionicons name="checkmark" size={13} color={Colors.onPrimary} />
+        </View>
+      ) : null}
 
       <View style={styles.cardMeta}>
         <Text style={styles.cardTitle} numberOfLines={1}>
@@ -168,6 +184,51 @@ function GameCard({ game, owned }: { game: Game; owned: boolean }) {
         </View>
       </View>
     </Pressable>
+  );
+}
+
+function GameCardImage({ gameId, gameName }: { gameId: string; gameName: string }) {
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCoverImage = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/games/${gameId}/images`);
+        if (response.ok) {
+          const data = await response.json();
+          setCoverUrl(data.theme?.cover?.url || null);
+        }
+      } catch (err) {
+        console.error(`Error fetching cover for ${gameId}:`, err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCoverImage();
+  }, [gameId]);
+
+  if (loading) {
+    return (
+      <View style={[styles.cardArt, styles.cardArtPlaceholder]}>
+        <ActivityIndicator size="small" color={Colors.primary} />
+      </View>
+    );
+  }
+
+  if (coverUrl) {
+    return (
+      <Image
+        source={{ uri: coverUrl }}
+        style={styles.cardArt}
+        resizeMode="cover"
+      />
+    );
+  }
+
+  return (
+    <Artwork seed={gameId} label={gameName} style={styles.cardArt} />
   );
 }
 
@@ -254,6 +315,7 @@ const styles = StyleSheet.create({
     ...Shadow.card,
   },
   cardArt: { width: '100%', aspectRatio: 4 / 5, borderRadius: 0 },
+  cardArtPlaceholder: { alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.backgroundInset },
 
   tag: {
     position: 'absolute',

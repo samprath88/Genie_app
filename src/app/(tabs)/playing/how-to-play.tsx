@@ -108,7 +108,7 @@ export default function HowToPlayScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
         {coverImage ? (
           <Image 
             source={{ uri: coverImage }} 
@@ -164,7 +164,6 @@ const styles = StyleSheet.create({
   tabs: { gap: Spacing.two, paddingHorizontal: Layout.screenPadding, paddingVertical: Spacing.three },
   content: {
     padding: Layout.screenPadding,
-    paddingBottom: Spacing.seven,
     maxWidth: Layout.maxContentWidth,
     width: '100%',
     alignSelf: 'center',
