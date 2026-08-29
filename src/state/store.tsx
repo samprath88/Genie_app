@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { NARRATOR_VOICES, type NarratorVoice } from '@/data/content';
+import { GAME_INTERESTS, NARRATOR_VOICES, type GameInterest, type NarratorVoice } from '@/data/content';
 import { getGame, type Tier } from '@/data/games';
 import { PlayerColors } from '@/constants/theme';
 
@@ -16,6 +16,7 @@ const KEYS = {
   narratorVoice: 'genie:narrator_voice',
   autoplay: 'genie:autoplay_narration',
   notifications: 'genie:notification_settings',
+  interests: 'genie:game_interests',
   scores: 'genie:game_scores',
   basket: 'genie:basket',
   seenWelcome: 'genie:seen_welcome',
@@ -80,6 +81,7 @@ type Store = {
   purchasedGames: string[];
   isUnlocked: (gameId: string) => boolean;
   purchase: (gameId: string) => void;
+  resetPurchases: () => void;
 
   /** Basket is placeholder commerce — checkout reuses `purchase` to unlock. */
   basket: BasketItem[];
@@ -95,6 +97,9 @@ type Store = {
 
   notifications: NotificationSettings;
   setNotification: (key: keyof NotificationSettings, value: boolean) => void;
+
+  interests: GameInterest[];
+  toggleInterest: (tag: GameInterest) => void;
 
   /** Current game being played/viewed. Used across screens (How-to-Play, Scoring, etc.) */
   currentGame: string;
@@ -134,6 +139,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [narratorVoice, setVoiceState] = useState<NarratorVoice>('Kore');
   const [autoplay, setAutoplayState] = useState(true);
   const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
+  const [interests, setInterests] = useState<GameInterest[]>([]);
   const [currentGame, setCurrentGameState] = useState('pandemic');
   const [players, setPlayers] = useState<Player[]>(DEFAULT_PLAYERS);
   const [winnerId, setWinnerId] = useState<number | null>(null);
@@ -143,13 +149,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [games, cart, voice, auto, notifs, game, scores] = await Promise.all([
+      const [games, cart, voice, auto, notifs, savedInterests, game, scores] = await Promise.all([
         // Catan and Wingspan are pre-owned so the shelf shows both states.
         read<string[]>(KEYS.purchasedGames, ['catan', 'wingspan']),
         read<BasketItem[]>(KEYS.basket, []),
         read<NarratorVoice>(KEYS.narratorVoice, 'Kore'),
         read<boolean>(KEYS.autoplay, true),
         read<NotificationSettings>(KEYS.notifications, DEFAULT_NOTIFICATIONS),
+        read<GameInterest[]>(KEYS.interests, []),
         read<string>(KEYS.currentGame, 'pandemic'),
         read<{ players: Player[]; winnerId: number | null }>(KEYS.scores, {
           players: DEFAULT_PLAYERS,
@@ -162,6 +169,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setVoiceState(NARRATOR_VOICES.includes(voice) ? voice : 'Kore');
       setAutoplayState(auto);
       setNotifications({ ...DEFAULT_NOTIFICATIONS, ...notifs });
+      setInterests(Array.isArray(savedInterests) ? savedInterests.filter((t) => GAME_INTERESTS.includes(t)) : []);
       setCurrentGameState(game);
       setPlayers(scores.players?.length ? scores.players : DEFAULT_PLAYERS);
       setWinnerId(scores.winnerId ?? null);
@@ -180,6 +188,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
     setToast('✓ Purchased! Enjoy unlimited access.');
+  }, []);
+
+  /** Testing helper — locks every game again, including the two pre-owned by default. */
+  const resetPurchases = useCallback(() => {
+    setPurchasedGames([]);
+    write(KEYS.purchasedGames, []);
+    setToast('All games reset to locked');
   }, []);
 
   const addToBasket = useCallback((item: BasketItem) => {
@@ -235,6 +250,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const toggleInterest = useCallback((tag: GameInterest) => {
+    setInterests((prev) => {
+      const next = prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag];
+      write(KEYS.interests, next);
+      return next;
+    });
+  }, []);
+
   const setCurrentGame = useCallback((gameId: string) => {
     setCurrentGameState(gameId);
     write(KEYS.currentGame, gameId);
@@ -280,6 +303,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       purchasedGames,
       isUnlocked: (gameId: string) => purchasedGames.includes(gameId),
       purchase,
+      resetPurchases,
       basket,
       addToBasket,
       removeFromBasket,
@@ -291,6 +315,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setAutoplay,
       notifications,
       setNotification,
+      interests,
+      toggleInterest,
       currentGame,
       setCurrentGame,
       players,
@@ -303,8 +329,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       clearToast: () => setToast(null),
     }),
     [
-      hydrated, purchasedGames, purchase, basket, addToBasket, removeFromBasket, checkout,
+      hydrated, purchasedGames, purchase, resetPurchases, basket, addToBasket, removeFromBasket, checkout,
       narratorVoice, setNarratorVoice, autoplay, setAutoplay, notifications, setNotification,
+      interests, toggleInterest,
       currentGame, setCurrentGame, players, adjustScore, winnerId, declareWinner, resetScores, toast,
     ],
   );

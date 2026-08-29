@@ -9,12 +9,14 @@ import { BasketButton } from '@/components/basket-button';
 import { Pill } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
 import { FILTERS, priceLabel, type Category, type Game } from '@/data/games';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { useStore } from '@/state/store';
 
 const API_BASE = 'http://192.168.1.101:8000';
 
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarClearance = useTabBarClearance();
   const { isUnlocked } = useStore();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'All' | Category>('All');
@@ -89,7 +91,7 @@ export default function GamesScreen() {
         keyExtractor={(g) => g.id}
         numColumns={2}
         columnWrapperStyle={styles.column}
-        contentContainerStyle={[styles.list, { paddingBottom: Layout.tabBarHeight + 10 }]}
+        contentContainerStyle={[styles.list, { paddingBottom: tabBarClearance }]}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View>

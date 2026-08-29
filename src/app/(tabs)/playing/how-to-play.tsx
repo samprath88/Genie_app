@@ -1,22 +1,19 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork } from '@/components/artwork';
 import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
-import { GenieMark, Pill } from '@/components/ui';
+import { GenieMark, Pill, Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing } from '@/constants/theme';
+import { GAME_NAMES } from '@/data/games';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useNarration } from '@/hooks/useNarration';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { useStore } from '@/state/store';
-
-const GAME_NAMES: Record<string, string> = {
-  pandemic: 'Pandemic',
-  catan: 'Catan',
-  ticket_to_ride: 'Ticket to Ride',
-};
 
 interface Section {
   id: string;
@@ -25,7 +22,8 @@ interface Section {
 }
 
 export default function HowToPlayScreen() {
-  const { currentGame } = useStore();
+  const tabBarClearance = useTabBarClearance();
+  const { currentGame, autoplay } = useStore();
   const { images } = useGameImages(currentGame);
   const [active, setActive] = useState(0);
   const [sections, setSections] = useState<Section[]>([]);
@@ -33,6 +31,20 @@ export default function HowToPlayScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const { openAskGenie } = useOverlays();
+  const narration = useNarration();
+
+  useFocusEffect(
+    useCallback(() => {
+      const text = sections[active]?.content;
+      if (autoplay && text) {
+        narration.play(text);
+      }
+      return () => narration.stop();
+      // Section/autoplay changes should (re)start narration while focused;
+      // losing focus always stops it, via the cleanup below.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sections, active, autoplay]),
+  );
 
   useEffect(() => {
     const fetchContent = async () => {
@@ -88,19 +100,19 @@ export default function HowToPlayScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.headerRow}>
-        <ScreenHeader 
-          title="How to Play" 
-          subtitle={gameName}
-          onBack={() => router.push('/playing')}
-        />
-        <Pressable 
-          onPress={() => setShowModeSwitcher(true)}
-          hitSlop={20}
-          style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
-          <Ionicons name="swap-vertical" size={20} color={Colors.onPrimary} />
-        </Pressable>
-      </View>
+      <ScreenHeader
+        title="How to Play"
+        subtitle={gameName}
+        onBack={() => router.push('/playing')}
+        right={
+          <Pressable
+            onPress={() => setShowModeSwitcher(true)}
+            hitSlop={20}
+            style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="swap-vertical" size={18} color={Colors.textOnDark} />
+          </Pressable>
+        }
+      />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
         {sections.map((s, i) => (
@@ -108,7 +120,7 @@ export default function HowToPlayScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
         {coverImage ? (
           <Image 
             source={{ uri: coverImage }} 
@@ -120,6 +132,21 @@ export default function HowToPlayScreen() {
         )}
 
         <Text style={styles.sectionTitle}>{section.title}</Text>
+
+        <Pressable
+          onPress={() =>
+            narration.playing ? narration.stop() : narration.play(section.content)
+          }
+          style={({ pressed }) => [styles.narrationRow, pressed && { opacity: 0.7 }]}>
+          {narration.playing ? (
+            <Waveform color={Colors.primary} height={14} />
+          ) : (
+            <Ionicons name="volume-medium-outline" size={16} color={Colors.textSecondary} />
+          )}
+          <Text style={styles.narrationText}>
+            {narration.playing ? 'Now playing automatically' : 'Tap to hear this section'}
+          </Text>
+        </Pressable>
 
         <Text style={styles.body}>{section.content}</Text>
 
@@ -144,23 +171,15 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centerContent: { alignItems: 'center', justifyContent: 'center' },
   
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: Spacing.four,
-    paddingLeft: Spacing.three,
-    backgroundColor: Colors.secondary,
-  },
   modeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: Spacing.two,
   },
-  
+
   tabs: { gap: Spacing.two, paddingHorizontal: Layout.screenPadding, paddingVertical: Spacing.three },
   content: {
     padding: Layout.screenPadding,
@@ -177,6 +196,13 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: Spacing.three,
   },
+  narrationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginBottom: Spacing.three,
+  },
+  narrationText: { fontFamily: 'System', fontSize: 12.5, fontWeight: '600', color: Colors.textSecondary },
   body: {
     fontFamily: 'System',
     fontSize: 15,

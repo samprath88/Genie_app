@@ -4,17 +4,11 @@ interface ComponentImage {
 }
 
 import Ionicons from '@expo/vector-icons/Ionicons';
-import {
-  AudioModule,
-  RecordingPresets,
-  createAudioPlayer,
-  setAudioModeAsync,
-  useAudioRecorder,
-  type AudioPlayer,
-} from 'expo-audio';
-import { File, Paths } from 'expo-file-system';
+import { AudioStudioModule, useAudioRecorder as useAudioStudioRecorder } from '@siteed/audio-studio';
+import { setAudioModeAsync } from 'expo-audio';
+import { File } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -26,13 +20,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   Body, GenieMark, Muted, Waveform,
 } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
 import { DEFAULT_ANSWER, type QA } from '@/data/content';
+import { GAME_NAMES } from '@/data/games';
 import { useGameImages } from '@/hooks/useGameImages';
+import { stopAllNarration, useNarration } from '@/hooks/useNarration';
 import { useStore } from '@/state/store';
 
 const API_BASE = 'http://192.168.1.101:8000';
@@ -109,99 +106,65 @@ function findTopComponentMatch(
 }
 
 function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
   const gameToLoad = gameName || '';
   const { images } = useGameImages(gameToLoad);
   const [question, setQuestion] = useState('');
   const [exchange, setExchange] = useState<QA>({ question: '', answer: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [recording, setRecording] = useState(false);
   const [relatedImage, setRelatedImage] = useState<ComponentImage | null>(null) as any;
   const [showImageModal, setShowImageModal] = useState(false);
 
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const playerRef = useRef<AudioPlayer | null>(null);
+  const { startRecording: startAudioStudioRecording, stopRecording: stopAudioStudioRecording } =
+    useAudioStudioRecorder();
+  const narration = useNarration();
 
   useEffect(() => {
     if (gameName) {
       setExchange({ question: '', answer: '' });
       setQuestion('');
       setError(null);
-      setPlaying(false);
+      // Whatever's narrating — this modal's own answer audio, or a screen behind
+      // it — should stop the moment Ask Genie opens, since voice input is on offer.
+      stopAllNarration();
       setRecording(false);
       setRelatedImage(null);
       setShowImageModal(false);
     }
+    // Reopening for a different game/question should reset — not on every narration state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameName]);
-
-  useEffect(() => {
-    return () => {
-      playerRef.current?.remove();
-      playerRef.current = null;
-    };
-  }, []);
 
   if (!gameName) return null;
 
-  const playAnswer = async (text: string) => {
-    try {
-      setPlaying(true);
-      setError(null);
-      playerRef.current?.remove();
-      playerRef.current = null;
-
-      const response = await expoFetch(`${API_BASE}/speak`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`TTS failed: ${response.status}`);
-      }
-
-      const bytes = await response.bytes();
-      const file = new File(Paths.cache, `genie-answer-${Date.now()}.mp3`);
-      file.write(bytes);
-
-      const player = createAudioPlayer({ uri: file.uri });
-      playerRef.current = player;
-
-      player.addListener('playbackStatusUpdate', (status: any) => {
-        if (status?.didJustFinish) setPlaying(false);
-      });
-
-      player.play();
-    } catch (err) {
-      console.error('Error playing audio:', err);
-      setError(err instanceof Error ? err.message : 'Failed to play audio');
-      setPlaying(false);
-    }
-  };
+  const playAnswer = (text: string) => narration.play(text);
 
   const startRecording = async () => {
     try {
       setError(null);
-      const permission = await AudioModule.requestRecordingPermissionsAsync();
-      if (!permission.granted) {
+      const { status } = await AudioStudioModule.requestPermissionsAsync();
+      if (status !== 'granted') {
         setError('Microphone permission denied');
         return;
       }
 
+      // Shared iOS audio session category — governs recording regardless of
+      // which native module (this one, or expo-audio for playback) initiates it.
       await setAudioModeAsync({
         playsInSilentMode: true,
         allowsRecording: true,
       });
 
-      try {
-        await recorder.stop();
-      } catch (e) {
-        console.log('Previous recording stopped');
-      }
-
-      await recorder.prepareToRecordAsync();
-      recorder.record();
+      // Records LINEAR16 mono WAV directly at the sample rate Google STT
+      // wants, so the backend no longer needs to transcode AAC before sending it.
+      await startAudioStudioRecording({
+        sampleRate: 16000,
+        channels: 1,
+        encoding: 'pcm_16bit',
+        output: { primary: { enabled: true } },
+      });
       setRecording(true);
     } catch (err) {
       console.error('Error starting recording:', err);
@@ -212,10 +175,10 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
 
   const stopRecording = async () => {
     try {
-      await recorder.stop();
+      const result = await stopAudioStudioRecording();
       setRecording(false);
 
-      const uri = recorder.uri;
+      const uri = result?.fileUri;
       if (!uri) {
         setError('Failed to get recording');
         return;
@@ -329,7 +292,9 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
               <GenieMark size={26} />
               <View style={{ flex: 1, marginLeft: Spacing.three }}>
                 <Text style={styles.askTitle}>Ask Genie</Text>
-                <Muted style={{ fontSize: 12 }}>{gameName} · voice or type</Muted>
+                <Muted style={{ fontSize: 12 }}>
+                  {GAME_NAMES[gameName] || gameName} · voice or type
+                </Muted>
               </View>
               <Pressable onPress={onClose} hitSlop={8} style={styles.askClose}>
                 <Ionicons name="close" size={18} color={Colors.textSecondary} />
@@ -364,22 +329,26 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
                             resizeMode="cover"
                           />
                           <View style={styles.relatedImageLabel}>
-                            <Text style={styles.relatedImageLabelText}>{relatedImage.label}</Text>
+                            <Text style={styles.relatedImageLabelText} numberOfLines={1}>
+                              {relatedImage.label}
+                            </Text>
                             <Ionicons name="expand" size={14} color={Colors.textSecondary} />
                           </View>
                         </Pressable>
                       )}
 
-                      {error && <Text style={styles.errorText}>{error}</Text>}
+                      {(error || narration.error) && (
+                        <Text style={styles.errorText}>{error || narration.error}</Text>
+                      )}
 
-                      {playing && (
+                      {narration.playing && (
                         <View style={styles.speakingRow}>
                           <Waveform />
                           <Text style={styles.speakingText}>Playing audio...</Text>
                         </View>
                       )}
 
-                      {!playing && exchange.answer && (
+                      {!narration.playing && exchange.answer && (
                         <Pressable
                           onPress={() => playAnswer(exchange.answer)}
                           style={({ pressed }) => [styles.playButton, pressed && { opacity: 0.7 }]}>
@@ -401,7 +370,7 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
               )}
             </ScrollView>
 
-            <View style={styles.askInputRow}>
+            <View style={[styles.askInputRow, { paddingBottom: insets.bottom + Spacing.four }]}>
               <TextInput
                 value={question}
                 onChangeText={setQuestion}
@@ -556,6 +525,8 @@ const styles = StyleSheet.create({
   },
 
   relatedImageCard: {
+    width: 160,
+    alignSelf: 'flex-start',
     marginTop: Spacing.four,
     borderRadius: Radius.md,
     overflow: 'hidden',
@@ -564,7 +535,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
   relatedImageThumbnail: {
-    width: '100%',
+    width: 160,
     height: 160,
   },
   relatedImageLabel: {
@@ -575,6 +546,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.backgroundInset,
   },
   relatedImageLabelText: {
+    flex: 1,
+    marginRight: Spacing.one,
     fontFamily: Type.body,
     fontSize: 12,
     fontWeight: '600',

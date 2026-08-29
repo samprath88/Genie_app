@@ -251,3 +251,9 @@ export const SUPPORT_OPTIONS: SupportOption[] = [
 
 export const NARRATOR_VOICES = ['Kore', 'Roger', 'Tara'] as const;
 export type NarratorVoice = (typeof NARRATOR_VOICES)[number];
+
+/** Used to tailor future game recommendations — purely preference, no gameplay effect. */
+export const GAME_INTERESTS = [
+  'Co-op', 'Competitive', 'Strategy', 'Party', 'Family', 'Solo', 'Casual', 'Complex',
+] as const;
+export type GameInterest = (typeof GAME_INTERESTS)[number];

@@ -8,6 +8,8 @@ import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { GenieMark, SecondaryButton, SectionLabel } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
+import { GAME_NAMES } from '@/data/games';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { useStore, type Player } from '@/state/store';
 
 interface ScoreField {
@@ -27,6 +29,7 @@ interface PlayerScore {
 }
 
 export default function ScoringScreen() {
+  const tabBarClearance = useTabBarClearance();
   const { players, resetScores, currentGame } = useStore();
   const { openAskGenie } = useOverlays();
 
@@ -128,21 +131,21 @@ export default function ScoringScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.headerRow}>
-        <ScreenHeader 
-          title="Scoring Assist" 
-          subtitle={currentGame}
-          onBack={() => router.push('/playing')}
-        />
-        <Pressable 
-          onPress={() => setShowModeSwitcher(true)}
-          hitSlop={8}
-          style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
-          <Ionicons name="swap-vertical" size={20} color={Colors.textOnDark} />
-        </Pressable>
-      </View>
+      <ScreenHeader
+        title="Scoring Assist"
+        subtitle={GAME_NAMES[currentGame] || currentGame}
+        onBack={() => router.push('/playing')}
+        right={
+          <Pressable
+            onPress={() => setShowModeSwitcher(true)}
+            hitSlop={20}
+            style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="swap-vertical" size={18} color={Colors.textOnDark} />
+          </Pressable>
+        }
+      />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
         {winner ? (
           <View style={styles.winnerCard}>
             <Text style={styles.trophy}>🏆</Text>
@@ -252,24 +255,17 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centerContent: { alignItems: 'center', justifyContent: 'center' },
   
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: Spacing.three,
-    backgroundColor: Colors.secondary,
-  },
   modeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
   content: {
     padding: Layout.screenPadding,
-    paddingBottom: Spacing.seven,
     maxWidth: Layout.maxContentWidth,
     width: '100%',
     alignSelf: 'center',

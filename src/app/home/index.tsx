@@ -1,12 +1,10 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '@/components/artwork';
 import { GenieLogo } from '@/components/genie-logo';
-import { GenieMark, PrimaryButton, Waveform } from '@/components/ui';
+import { GenieMark, PrimaryButton } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 
 /**
@@ -15,7 +13,6 @@ import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
  */
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const [tourPlaying, setTourPlaying] = useState(false);
 
   return (
     <View style={styles.root}>
@@ -44,20 +41,6 @@ export default function HomeScreen() {
         </Text>
 
         <PrimaryButton label="Get started" onPress={() => router.replace('/games')} style={styles.cta} />
-
-        <Pressable
-          onPress={() => setTourPlaying((p) => !p)}
-          style={({ pressed }) => [styles.tour, pressed && { opacity: 0.7 }]}>
-          {tourPlaying ? (
-            <Waveform color={Colors.textSecondary} height={14} />
-          ) : (
-            <Ionicons name="volume-medium" size={16} color={Colors.textSecondary} />
-          )}
-          <Text style={styles.tourText}>
-            {/* UI placeholder — audio is wired in Phase 2. */}
-            {tourPlaying ? 'Playing tour audio...' : 'Hear the 30-second tour'}
-          </Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -105,13 +88,4 @@ const styles = StyleSheet.create({
   },
 
   cta: { marginTop: Spacing.six },
-
-  tour: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.two,
-    marginTop: Spacing.four,
-  },
-  tourText: { fontFamily: Type.body, fontSize: 13.5, color: Colors.textSecondary, fontWeight: '600' },
 });

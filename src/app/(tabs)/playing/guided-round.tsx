@@ -1,21 +1,18 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
-import { GenieMark, SecondaryButton, SectionLabel } from '@/components/ui';
+import { GenieMark, SecondaryButton, SectionLabel, Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
+import { GAME_NAMES } from '@/data/games';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useNarration } from '@/hooks/useNarration';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { useStore } from '@/state/store';
-
-const GAME_NAMES: Record<string, string> = {
-  pandemic: 'Pandemic',
-  catan: 'Catan',
-  ticket_to_ride: 'Ticket to Ride',
-};
 
 interface GuidedStep {
   title: string;
@@ -23,7 +20,8 @@ interface GuidedStep {
 }
 
 export default function GuidedRoundScreen() {
-  const { currentGame } = useStore();
+  const tabBarClearance = useTabBarClearance();
+  const { currentGame, autoplay } = useStore();
   const { images } = useGameImages(currentGame);
   const { openAskGenie } = useOverlays();
   const [steps, setSteps] = useState<GuidedStep[]>([]);
@@ -31,6 +29,20 @@ export default function GuidedRoundScreen() {
   const [error, setError] = useState<string | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
+  const narration = useNarration();
+
+  useFocusEffect(
+    useCallback(() => {
+      const text = steps[activeStep]?.content;
+      if (autoplay && text) {
+        narration.play(text);
+      }
+      return () => narration.stop();
+      // Step/autoplay changes should (re)start narration while focused;
+      // losing focus always stops it, via the cleanup below.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [steps, activeStep, autoplay]),
+  );
 
   useEffect(() => {
     const fetchSteps = async () => {
@@ -85,21 +97,21 @@ export default function GuidedRoundScreen() {
 
   return (
     <View style={styles.root}>
-      <View style={styles.headerRow}>
-        <ScreenHeader 
-          title="Guided First Round" 
-          subtitle={gameName}
-          onBack={() => router.push('/playing')}
-        />
-        <Pressable 
-          onPress={() => setShowModeSwitcher(true)}
-          hitSlop={20}
-          style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
-          <Ionicons name="swap-vertical" size={20} color={Colors.onPrimary} />
-        </Pressable>
-      </View>
+      <ScreenHeader
+        title="Guided First Round"
+        subtitle={gameName}
+        onBack={() => router.push('/playing')}
+        right={
+          <Pressable
+            onPress={() => setShowModeSwitcher(true)}
+            hitSlop={20}
+            style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
+            <Ionicons name="swap-vertical" size={18} color={Colors.textOnDark} />
+          </Pressable>
+        }
+      />
 
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
         {firstRoundImage && (
           <Image 
             source={{ uri: firstRoundImage }} 
@@ -125,6 +137,22 @@ export default function GuidedRoundScreen() {
 
         <View style={styles.card}>
           <Text style={styles.stepTitle}>{step.title}</Text>
+
+          <Pressable
+            onPress={() =>
+              narration.playing ? narration.stop() : narration.play(step.content)
+            }
+            style={({ pressed }) => [styles.narrationRow, pressed && { opacity: 0.7 }]}>
+            {narration.playing ? (
+              <Waveform color={Colors.primary} height={14} />
+            ) : (
+              <Ionicons name="volume-medium-outline" size={16} color={Colors.textSecondary} />
+            )}
+            <Text style={styles.narrationText}>
+              {narration.playing ? 'Now playing automatically' : 'Tap to hear this step'}
+            </Text>
+          </Pressable>
+
           <Text style={styles.stepContent}>{step.content}</Text>
         </View>
 
@@ -166,20 +194,13 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centerContent: { alignItems: 'center', justifyContent: 'center' },
   
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: Spacing.three,
-    backgroundColor: Colors.secondary,
-  },
   modeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: Spacing.two,
   },
 
   content: {
@@ -226,6 +247,13 @@ const styles = StyleSheet.create({
     color: Colors.text,
     marginBottom: Spacing.two,
   },
+  narrationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    marginBottom: Spacing.three,
+  },
+  narrationText: { fontFamily: Type.body, fontSize: 12.5, fontWeight: '600', color: Colors.textSecondary },
   stepContent: {
     fontFamily: Type.body,
     fontSize: 15,

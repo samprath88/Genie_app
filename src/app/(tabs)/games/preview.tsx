@@ -1,14 +1,17 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '@/components/artwork';
+import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
 import { getGame } from '@/data/games';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useNarration } from '@/hooks/useNarration';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { useStore } from '@/state/store';
 
 const API_BASE = 'http://192.168.1.101:8000';
@@ -21,15 +24,24 @@ interface IntroData {
 export default function PreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
-  const { isUnlocked } = useStore();
-  const [paused, setPaused] = useState(false);
+  const tabBarClearance = useTabBarClearance();
+  const { isUnlocked, autoplay, setCurrentGame } = useStore();
   const [intro, setIntro] = useState<IntroData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showModeSwitcher, setShowModeSwitcher] = useState(false);
+  const narration = useNarration();
 
   const game = getGame(id) ?? getGame('pandemic')!;
   const owned = isUnlocked(game.id);
   const { images } = useGameImages(game.id);
+
+  // Other modes' routes (how-to-play, scoring, ...) aren't parameterized by
+  // game id — they always act on the globally tracked current game, so it
+  // must match whatever's being previewed for the mode switcher to make sense.
+  useEffect(() => {
+    setCurrentGame(game.id);
+  }, [game.id, setCurrentGame]);
 
   useEffect(() => {
     const fetchIntro = async () => {
@@ -55,11 +67,23 @@ export default function PreviewScreen() {
     fetchIntro();
   }, [game.id]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (autoplay && intro?.content) {
+        narration.play(intro.content);
+      }
+      return () => narration.stop();
+      // Intro load/autoplay changes should (re)start narration while focused;
+      // losing focus always stops it, via the cleanup below.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [intro, autoplay]),
+  );
+
   const coverImage = images?.theme?.cover?.url;
 
   return (
     <View style={styles.root}>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
         {coverImage ? (
           <Image
             source={{ uri: coverImage }}
@@ -71,12 +95,30 @@ export default function PreviewScreen() {
         )}
 
         <View style={[styles.overlay, { paddingTop: insets.top + Spacing.two }]}>
-          <Pressable
-            onPress={() => (router.canGoBack() ? router.back() : router.replace(`/games/${game.id}`))}
-            hitSlop={10}
-            style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}>
-            <Ionicons name="chevron-back" size={20} color={Colors.textOnDark} />
-          </Pressable>
+          <View style={styles.topRow}>
+            <Pressable
+              onPress={() => (router.canGoBack() ? router.back() : router.replace(`/games/${game.id}`))}
+              hitSlop={10}
+              style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}>
+              <Ionicons name="chevron-back" size={20} color={Colors.textOnDark} />
+            </Pressable>
+
+            {owned ? (
+              <Pressable
+                onPress={() => setShowModeSwitcher(true)}
+                hitSlop={10}
+                style={({ pressed }) => [styles.back, pressed && { opacity: 0.7 }]}>
+                <Ionicons name="swap-vertical" size={20} color={Colors.textOnDark} />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={() => router.push(`/games/${game.id}`)}
+                style={({ pressed }) => [styles.unlockButton, pressed && { opacity: 0.85 }]}>
+                <Ionicons name="lock-closed" size={13} color={Colors.onPrimary} />
+                <Text style={styles.unlockButtonText}>Unlock</Text>
+              </Pressable>
+            )}
+          </View>
 
           <View>
             <Text style={styles.tag}>WHAT'S IT ALL ABOUT</Text>
@@ -93,21 +135,34 @@ export default function PreviewScreen() {
             ) : intro ? (
               <View style={styles.narrationCard}>
                 <View style={styles.statusRow}>
-                  <Waveform />
+                  {narration.playing ? (
+                    <Waveform />
+                  ) : (
+                    <Ionicons name="pause-circle-outline" size={16} color={Colors.primary} />
+                  )}
                   <Text style={styles.statusText}>
-                    {paused ? 'Paused · Genie standing by' : 'Playing intro narration'}
+                    {narration.playing ? 'Playing intro narration' : 'Paused · Genie standing by'}
                   </Text>
                 </View>
                 <Text style={styles.narrationBody}>{intro.content}</Text>
+                {narration.error && <Text style={styles.errorText}>{narration.error}</Text>}
               </View>
             ) : null}
 
             <View style={styles.actions}>
               <Pressable
-                onPress={() => setPaused((p) => !p)}
-                style={({ pressed }) => [styles.pauseButton, pressed && { opacity: 0.8 }]}>
-                <Ionicons name={paused ? 'play' : 'pause'} size={14} color={Colors.onPrimary} />
-                <Text style={styles.pauseText}>{paused ? 'Resume narration' : 'Pause narration'}</Text>
+                onPress={() =>
+                  narration.playing ? narration.pause() : narration.resume(intro?.content ?? '')
+                }
+                disabled={!intro}
+                style={({ pressed }) => [
+                  styles.pauseButton,
+                  (pressed || !intro) && { opacity: 0.8 },
+                ]}>
+                <Ionicons name={narration.playing ? 'pause' : 'play'} size={14} color={Colors.onPrimary} />
+                <Text style={styles.pauseText}>
+                  {narration.playing ? 'Pause narration' : 'Resume narration'}
+                </Text>
               </Pressable>
               <Pressable
                 onPress={() => router.push(owned ? '/playing/how-to-play' : (`/games/${game.id}` as never))}
@@ -118,6 +173,12 @@ export default function PreviewScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <ModeSwitcher
+        visible={showModeSwitcher}
+        onClose={() => setShowModeSwitcher(false)}
+        currentMode="intro"
+      />
     </View>
   );
 }
@@ -134,6 +195,11 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.five,
     justifyContent: 'space-between',
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   back: {
     width: 34,
     height: 34,
@@ -141,6 +207,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  unlockButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    height: 34,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.primary,
+  },
+  unlockButtonText: {
+    fontFamily: Type.body,
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Colors.onPrimary,
   },
   tag: {
     fontFamily: Type.body,

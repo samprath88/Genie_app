@@ -1,6 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Artwork } from '@/components/artwork';
@@ -9,14 +9,11 @@ import { useOverlays } from '@/components/overlays';
 import { ScreenHeader } from '@/components/screen-header';
 import { CircleButton, GenieMark, Pill, Waveform } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
+import { GAME_NAMES } from '@/data/games';
 import { useGameImages } from '@/hooks/useGameImages';
+import { useNarration } from '@/hooks/useNarration';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { useStore } from '@/state/store';
-
-const GAME_NAMES: Record<string, string> = {
-  pandemic: 'Pandemic',
-  catan: 'Catan',
-  ticket_to_ride: 'Ticket to Ride',
-};
 
 interface SetupStep {
   title: string;
@@ -67,7 +64,8 @@ function findTopComponentMatch(
 }
 
 export default function SetupGuideScreen() {
-  const { currentGame } = useStore();
+  const tabBarClearance = useTabBarClearance();
+  const { currentGame, autoplay } = useStore();
   const { images } = useGameImages(currentGame);
   const [index, setIndex] = useState(0);
   const [steps, setSteps] = useState<SetupStep[]>([]);
@@ -77,6 +75,20 @@ export default function SetupGuideScreen() {
   const [relatedImage, setRelatedImage] = useState<ComponentImage | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const { openAskGenie } = useOverlays();
+  const narration = useNarration();
+
+  useFocusEffect(
+    useCallback(() => {
+      const text = steps[index]?.content;
+      if (autoplay && text) {
+        narration.play(text);
+      }
+      return () => narration.stop();
+      // Step/autoplay changes should (re)start narration while focused;
+      // losing focus always stops it, via the cleanup below.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [steps, index, autoplay]),
+  );
 
   useEffect(() => {
     const fetchSteps = async () => {
@@ -141,19 +153,19 @@ export default function SetupGuideScreen() {
   return (
     <>
       <View style={styles.root}>
-        <View style={styles.headerRow}>
-          <ScreenHeader 
-            title="Setup Guide" 
-            subtitle={gameName}
-            onBack={() => router.push('/playing')}
-          />
-          <Pressable 
-            onPress={() => setShowModeSwitcher(true)}
-            hitSlop={20}
-            style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
-            <Ionicons name="swap-vertical" size={20} color={Colors.onPrimary} />
-          </Pressable>
-        </View>
+        <ScreenHeader
+          title="Setup Guide"
+          subtitle={gameName}
+          onBack={() => router.push('/playing')}
+          right={
+            <Pressable
+              onPress={() => setShowModeSwitcher(true)}
+              hitSlop={20}
+              style={({ pressed }) => [styles.modeButton, pressed && { opacity: 0.7 }]}>
+              <Ionicons name="swap-vertical" size={18} color={Colors.textOnDark} />
+            </Pressable>
+          }
+        />
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
           {steps.map((s, i) => (
@@ -161,7 +173,7 @@ export default function SetupGuideScreen() {
           ))}
         </ScrollView>
 
-        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Layout.tabBarHeight + 10 }]}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
           {setupImage ? (
             <Image 
               source={{ uri: setupImage }} 
@@ -177,10 +189,20 @@ export default function SetupGuideScreen() {
           </Text>
 
           <View style={styles.panel}>
-            <View style={styles.statusRow}>
-              <Waveform />
-              <Text style={styles.statusText}>Now playing automatically</Text>
-            </View>
+            <Pressable
+              onPress={() =>
+                narration.playing ? narration.stop() : narration.play(step.content)
+              }
+              style={({ pressed }) => [styles.statusRow, pressed && { opacity: 0.7 }]}>
+              {narration.playing ? (
+                <Waveform />
+              ) : (
+                <Ionicons name="volume-medium-outline" size={16} color={Colors.textSecondary} />
+              )}
+              <Text style={[styles.statusText, !narration.playing && styles.statusTextIdle]}>
+                {narration.playing ? 'Now playing automatically' : 'Tap to hear this step'}
+              </Text>
+            </Pressable>
             <Text style={styles.instruction}>{step.content}</Text>
           </View>
 
@@ -194,7 +216,9 @@ export default function SetupGuideScreen() {
                 resizeMode="cover"
               />
               <View style={styles.relatedImageLabel}>
-                <Text style={styles.relatedImageLabelText}>{relatedImage.label}</Text>
+                <Text style={styles.relatedImageLabelText} numberOfLines={1}>
+                  {relatedImage.label}
+                </Text>
                 <Ionicons name="expand" size={14} color={Colors.textSecondary} />
               </View>
             </Pressable>
@@ -263,22 +287,15 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
   centerContent: { alignItems: 'center', justifyContent: 'center' },
   
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingRight: Spacing.three,
-    backgroundColor: Colors.secondary,
-  },
   modeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: Radius.pill,
+    backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: Spacing.two,
   },
-  
+
   tabs: { gap: Spacing.two, padding: Layout.screenPadding },
   content: {
     paddingHorizontal: Layout.screenPadding,
@@ -304,9 +321,12 @@ const styles = StyleSheet.create({
   },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginBottom: Spacing.three },
   statusText: { fontFamily: Type.body, fontSize: 12.5, fontWeight: '600', color: Colors.primary },
+  statusTextIdle: { color: Colors.textSecondary },
   instruction: { fontFamily: Type.body, fontSize: 15, lineHeight: 23, color: Colors.text },
   
   relatedImageCard: {
+    width: 160,
+    alignSelf: 'flex-start',
     marginTop: Spacing.four,
     borderRadius: Radius.md,
     overflow: 'hidden',
@@ -315,7 +335,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
   relatedImageThumbnail: {
-    width: '100%',
+    width: 160,
     height: 160,
   },
   relatedImageLabel: {
@@ -326,6 +346,8 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.backgroundInset,
   },
   relatedImageLabelText: {
+    flex: 1,
+    marginRight: Spacing.one,
     fontFamily: Type.body,
     fontSize: 12,
     fontWeight: '600',

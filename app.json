@@ -36,7 +36,8 @@
           "imageWidth": 76
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "@siteed/audio-studio"
     ],
     "experiments": {
       "typedRoutes": true,

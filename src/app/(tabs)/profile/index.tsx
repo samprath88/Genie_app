@@ -6,14 +6,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Artwork } from '@/components/artwork';
 import { Card, ListRow, Pill, SectionLabel, Toggle } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-import { NARRATOR_VOICES } from '@/data/content';
+import { GAME_INTERESTS, NARRATOR_VOICES } from '@/data/content';
 import { GAMES, priceLabel } from '@/data/games';
+import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { USER, useStore } from '@/state/store';
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const tabBarClearance = useTabBarClearance();
   const {
-    purchasedGames, narratorVoice, setNarratorVoice, autoplay, setAutoplay, showToast,
+    purchasedGames, resetPurchases, narratorVoice, setNarratorVoice, autoplay, setAutoplay,
+    interests, toggleInterest, showToast,
   } = useStore();
 
   const owned = GAMES.filter((g) => purchasedGames.includes(g.id));
@@ -26,7 +29,9 @@ export default function ProfileScreen() {
   };
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.root}
+      contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
       <Artwork seed="profile-table" radius={0} style={[styles.banner, { paddingTop: insets.top }]}>
         <View style={styles.bannerCard}>
           <View style={styles.avatar}>
@@ -131,6 +136,36 @@ export default function ProfileScreen() {
           </Card>
         )}
 
+        <SectionLabel style={styles.sectionSpacer}>Game interests</SectionLabel>
+        <Card>
+          <Text style={styles.interestsHint}>
+            Tell Genie what you like — this shapes which games get recommended to you.
+          </Text>
+          <View style={styles.interests}>
+            {GAME_INTERESTS.map((tag) => (
+              <Pill
+                key={tag}
+                label={tag}
+                active={interests.includes(tag)}
+                onPress={() => toggleInterest(tag)}
+              />
+            ))}
+          </View>
+        </Card>
+
+        <SectionLabel style={styles.sectionSpacer}>Testing</SectionLabel>
+        <Card padded={false}>
+          <ListRow
+            title="Reset purchases"
+            description="Locks every game again, for testing the unlock flow"
+            ionicon="refresh"
+            iconTint="#F2DFC4"
+            iconColor="#C79A3E"
+            onPress={resetPurchases}
+            last
+          />
+        </Card>
+
         <Pressable
           onPress={signOut}
           style={({ pressed }) => [styles.signOut, pressed && { opacity: 0.7 }]}>
@@ -144,7 +179,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Colors.background },
-  content: { paddingBottom: Spacing.seven, maxWidth: Layout.maxContentWidth, width: '100%', alignSelf: 'center' },
+  content: { maxWidth: Layout.maxContentWidth, width: '100%', alignSelf: 'center' },
 
   signOut: {
     flexDirection: 'row',
@@ -202,6 +237,9 @@ const styles = StyleSheet.create({
   },
 
   emptyText: { fontFamily: Type.body, fontSize: 13.5, color: Colors.textSecondary },
+
+  interestsHint: { fontFamily: Type.body, fontSize: 12.5, color: Colors.textSecondary, marginBottom: Spacing.three },
+  interests: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.two },
 
   gameRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.three, padding: Spacing.three },
   gameRowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.border },

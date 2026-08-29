@@ -7,6 +7,7 @@ import { ScreenHeader } from '@/components/screen-header';
 import { SecondaryButton, SectionLabel } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
 import { FEATURES, type Feature } from '@/data/content';
+import { GAME_NAMES } from '@/data/games';
 import { useStore } from '@/state/store';
 
 export default function PlayingHubScreen() {
@@ -46,7 +47,7 @@ export default function PlayingHubScreen() {
         </Pressable>
         <View style={styles.headerText}>
           <Text style={styles.headerTitle}>Select a Mode</Text>
-          <Text style={styles.headerSubtitle}>{currentGame}</Text>
+          <Text style={styles.headerSubtitle}>{GAME_NAMES[currentGame] || currentGame}</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>

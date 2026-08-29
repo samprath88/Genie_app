@@ -13,10 +13,12 @@ export function ScreenHeader({
   title,
   subtitle,
   onBack,
+  right,
 }: {
   title: string;
   subtitle?: string;
   onBack?: () => void;
+  right?: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
 
@@ -45,7 +47,7 @@ export function ScreenHeader({
       </View>
 
       {/* Balances the back button so the title stays optically centred. */}
-      <View style={styles.back} />
+      {right ?? <View style={styles.back} />}
     </View>
   );
 }

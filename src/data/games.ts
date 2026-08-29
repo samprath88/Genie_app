@@ -115,6 +115,9 @@ export const GAMES: Game[] = [...FEATURED, ...FILLER];
 
 export const getGame = (id: string) => GAMES.find((g) => g.id === id);
 
+/** Display name for a game id, e.g. 'ticket_to_ride' -> 'Ticket to Ride'. */
+export const GAME_NAMES: Record<string, string> = Object.fromEntries(GAMES.map((g) => [g.id, g.name]));
+
 export const FILTERS: ('All' | Category)[] = ['All', 'Co-op', 'Strategy', 'Family', 'Abstract'];
 
 /* --------------------------------------------------------------- packages -- */
