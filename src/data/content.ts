@@ -21,7 +21,7 @@ export const FEATURES: Feature[] = [
   {
     key: 'about',
     title: "What's It All About",
-    description: 'The free hook — why this game is worth your evening.',
+    description: 'Why this game is worth your evening.',
     free: true,
     accent: '#D9A86B',
   },
@@ -58,6 +58,28 @@ export const FEATURES: Feature[] = [
     route: '/playing/scoring',
   },
 ];
+
+/**
+ * Co-op games (Pandemic) don't have a competitive score to track — there's no
+ * winner to declare, just win/loss conditions. Swap the Scoring Assist card
+ * for a link into the same How to Play content that already covers those
+ * (the "winning"/"losing" section ids), rather than showing a scoring UI
+ * that doesn't apply.
+ */
+export function getFeaturesForGame(game: { categories: readonly string[] }): Feature[] {
+  if (!game.categories.includes('Co-op')) return FEATURES;
+
+  return FEATURES.map((feature) =>
+    feature.key === 'scoring'
+      ? {
+          ...feature,
+          title: 'How You Win & Lose',
+          description: "No score to track here — see what it takes to win, and what ends the game.",
+          route: '/playing/how-to-play?section=winning',
+        }
+      : feature,
+  );
+}
 
 /** Checklist shown inside the unlock modal. */
 export const UNLOCK_CHECKLIST = [
@@ -257,3 +279,24 @@ export const GAME_INTERESTS = [
   'Co-op', 'Competitive', 'Strategy', 'Party', 'Family', 'Solo', 'Casual', 'Complex',
 ] as const;
 export type GameInterest = (typeof GAME_INTERESTS)[number];
+
+/**
+ * The `key` here is sent verbatim as the backend's `provider` field
+ * (`/games/{game}/ask`), so it stays a straight passthrough with no mapping
+ * layer between what's stored and what the API expects.
+ */
+export const AI_PROVIDERS = [
+  {
+    key: 'deepseek',
+    label: 'Local LLM (Fast)',
+    description: 'Runs on your device, no internet needed',
+    recommended: true,
+  },
+  {
+    key: 'claude',
+    label: 'Claude API (Smarter)',
+    description: 'More accurate answers, requires internet',
+    recommended: false,
+  },
+] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number]['key'];

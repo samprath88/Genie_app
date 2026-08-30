@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { GAME_INTERESTS, NARRATOR_VOICES, type GameInterest, type NarratorVoice } from '@/data/content';
+import {
+  AI_PROVIDERS, GAME_INTERESTS, NARRATOR_VOICES,
+  type AiProvider, type GameInterest, type NarratorVoice,
+} from '@/data/content';
 import { getGame, type Tier } from '@/data/games';
 import { PlayerColors } from '@/constants/theme';
 
@@ -17,6 +20,7 @@ const KEYS = {
   autoplay: 'genie:autoplay_narration',
   notifications: 'genie:notification_settings',
   interests: 'genie:game_interests',
+  aiProvider: 'genie:ai_provider',
   scores: 'genie:game_scores',
   basket: 'genie:basket',
   seenWelcome: 'genie:seen_welcome',
@@ -94,6 +98,8 @@ type Store = {
   setNarratorVoice: (v: NarratorVoice) => void;
   autoplay: boolean;
   setAutoplay: (v: boolean) => void;
+  aiProvider: AiProvider;
+  setAiProvider: (v: AiProvider) => void;
 
   notifications: NotificationSettings;
   setNotification: (key: keyof NotificationSettings, value: boolean) => void;
@@ -107,6 +113,8 @@ type Store = {
 
   players: Player[];
   adjustScore: (playerId: number, delta: number) => void;
+  addPlayer: () => void;
+  removePlayer: (playerId: number) => void;
   winnerId: number | null;
   declareWinner: () => void;
   resetScores: () => void;
@@ -138,6 +146,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [narratorVoice, setVoiceState] = useState<NarratorVoice>('Kore');
   const [autoplay, setAutoplayState] = useState(true);
+  const [aiProvider, setAiProviderState] = useState<AiProvider>('deepseek');
   const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS);
   const [interests, setInterests] = useState<GameInterest[]>([]);
   const [currentGame, setCurrentGameState] = useState('pandemic');
@@ -149,12 +158,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [games, cart, voice, auto, notifs, savedInterests, game, scores] = await Promise.all([
+      const [games, cart, voice, auto, aiProviderValue, notifs, savedInterests, game, scores] = await Promise.all([
         // Catan and Wingspan are pre-owned so the shelf shows both states.
         read<string[]>(KEYS.purchasedGames, ['catan', 'wingspan']),
         read<BasketItem[]>(KEYS.basket, []),
         read<NarratorVoice>(KEYS.narratorVoice, 'Kore'),
         read<boolean>(KEYS.autoplay, true),
+        read<AiProvider>(KEYS.aiProvider, 'deepseek'),
         read<NotificationSettings>(KEYS.notifications, DEFAULT_NOTIFICATIONS),
         read<GameInterest[]>(KEYS.interests, []),
         read<string>(KEYS.currentGame, 'pandemic'),
@@ -168,6 +178,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setBasket(Array.isArray(cart) ? cart : []);
       setVoiceState(NARRATOR_VOICES.includes(voice) ? voice : 'Kore');
       setAutoplayState(auto);
+      setAiProviderState(AI_PROVIDERS.some((p) => p.key === aiProviderValue) ? aiProviderValue : 'deepseek');
       setNotifications({ ...DEFAULT_NOTIFICATIONS, ...notifs });
       setInterests(Array.isArray(savedInterests) ? savedInterests.filter((t) => GAME_INTERESTS.includes(t)) : []);
       setCurrentGameState(game);
@@ -242,6 +253,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     write(KEYS.autoplay, v);
   }, []);
 
+  const setAiProvider = useCallback((v: AiProvider) => {
+    setAiProviderState(v);
+    write(KEYS.aiProvider, v);
+  }, []);
+
   const setNotification = useCallback((key: keyof NotificationSettings, value: boolean) => {
     setNotifications((prev) => {
       const next = { ...prev, [key]: value };
@@ -282,6 +298,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [persistScores],
   );
 
+  const addPlayer = useCallback(() => {
+    setPlayers((prev) => {
+      if (prev.length >= PlayerColors.length) return prev;
+      const nextId = prev.reduce((max, p) => Math.max(max, p.id), 0) + 1;
+      const next = [
+        ...prev,
+        { id: nextId, name: `Player ${prev.length + 1}`, color: PlayerColors[prev.length], score: 0 },
+      ];
+      persistScores(next, null);
+      return next;
+    });
+    setWinnerId(null);
+  }, [persistScores]);
+
+  const removePlayer = useCallback(
+    (playerId: number) => {
+      setPlayers((prev) => {
+        if (prev.length <= 2) return prev;
+        const next = prev.filter((p) => p.id !== playerId);
+        persistScores(next, null);
+        return next;
+      });
+      setWinnerId(null);
+    },
+    [persistScores],
+  );
+
   const declareWinner = useCallback(() => {
     setPlayers((prev) => {
       const top = prev.reduce((best, p) => (p.score > best.score ? p : best), prev[0]);
@@ -313,6 +356,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setNarratorVoice,
       autoplay,
       setAutoplay,
+      aiProvider,
+      setAiProvider,
       notifications,
       setNotification,
       interests,
@@ -321,6 +366,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setCurrentGame,
       players,
       adjustScore,
+      addPlayer,
+      removePlayer,
       winnerId,
       declareWinner,
       resetScores,
@@ -330,9 +377,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }),
     [
       hydrated, purchasedGames, purchase, resetPurchases, basket, addToBasket, removeFromBasket, checkout,
-      narratorVoice, setNarratorVoice, autoplay, setAutoplay, notifications, setNotification,
+      narratorVoice, setNarratorVoice, autoplay, setAutoplay, aiProvider, setAiProvider,
+      notifications, setNotification,
       interests, toggleInterest,
-      currentGame, setCurrentGame, players, adjustScore, winnerId, declareWinner, resetScores, toast,
+      currentGame, setCurrentGame, players, adjustScore, addPlayer, removePlayer,
+      winnerId, declareWinner, resetScores, toast,
     ],
   );
 

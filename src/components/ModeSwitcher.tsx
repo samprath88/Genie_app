@@ -4,6 +4,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors, Radius, Shadow, Spacing, Type } from '@/constants/theme';
+import { getGame } from '@/data/games';
 import { useStore } from '@/state/store';
 
 interface ModeSwitcherProps {
@@ -16,13 +17,18 @@ export function ModeSwitcher({ visible, onClose, currentMode }: ModeSwitcherProp
   const insets = useSafeAreaInsets();
   const { currentGame, isUnlocked } = useStore();
   const owned = isUnlocked(currentGame);
+  const isCoop = getGame(currentGame)?.categories.includes('Co-op') ?? false;
 
   const modes = [
     { key: 'intro', title: "What's It All About", route: `/games/preview?id=${currentGame}`, free: true },
     { key: 'how-to-play', title: 'How to Play', route: '/playing/how-to-play', free: false },
     { key: 'setup-guide', title: 'Setup Guide', route: '/playing/setup-guide', free: false },
     { key: 'guided-round', title: 'First Round', route: '/playing/guided-round', free: false },
-    { key: 'scoring', title: 'Scoring Assist', route: '/playing/scoring', free: false },
+    // Co-op games have no competitive score to track — point at the
+    // win/loss-condition section already covered in How to Play instead.
+    isCoop
+      ? { key: 'scoring', title: 'How You Win & Lose', route: '/playing/how-to-play?section=winning', free: false }
+      : { key: 'scoring', title: 'Scoring Assist', route: '/playing/scoring', free: false },
   ];
 
   const handleModePress = (route: string, locked: boolean) => {

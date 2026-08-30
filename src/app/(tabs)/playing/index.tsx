@@ -6,14 +6,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ScreenHeader } from '@/components/screen-header';
 import { SecondaryButton, SectionLabel } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
-import { FEATURES, type Feature } from '@/data/content';
-import { GAME_NAMES } from '@/data/games';
+import { getFeaturesForGame, type Feature } from '@/data/content';
+import { GAME_NAMES, getGame } from '@/data/games';
 import { useStore } from '@/state/store';
 
 export default function PlayingHubScreen() {
   const insets = useSafeAreaInsets();
   const { currentGame, isUnlocked, addToBasket } = useStore();
   const owned = isUnlocked(currentGame);
+  const game = getGame(currentGame);
+  const features = game ? getFeaturesForGame(game) : [];
 
   const handleFeatureTap = (feature: Feature) => {
     // Preview/About goes to a different route
@@ -55,7 +57,7 @@ export default function PlayingHubScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <SectionLabel>How do you want to play?</SectionLabel>
 
-        {FEATURES.map((feature) => {
+        {features.map((feature) => {
           const locked = !feature.free && !owned;
           
           return (

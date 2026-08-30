@@ -1,5 +1,5 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -22,6 +22,7 @@ interface Section {
 }
 
 export default function HowToPlayScreen() {
+  const { section: sectionParam } = useLocalSearchParams<{ section?: string }>();
   const tabBarClearance = useTabBarClearance();
   const { currentGame, autoplay } = useStore();
   const { images } = useGameImages(currentGame);
@@ -32,6 +33,12 @@ export default function HowToPlayScreen() {
   const [showModeSwitcher, setShowModeSwitcher] = useState(false);
   const { openAskGenie } = useOverlays();
   const narration = useNarration();
+
+  useEffect(() => {
+    if (!sectionParam || !sections.length) return;
+    const idx = sections.findIndex((s) => s.id === sectionParam);
+    if (idx >= 0) setActive(idx);
+  }, [sectionParam, sections]);
 
   useFocusEffect(
     useCallback(() => {

@@ -8,7 +8,7 @@ import { Artwork } from '@/components/artwork';
 import { BasketButton } from '@/components/basket-button';
 import { SecondaryButton, SectionLabel } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
-import { FEATURES, type Feature } from '@/data/content';
+import { getFeaturesForGame, type Feature } from '@/data/content';
 import { formatPrice, getGame, getPackages, priceLabel, type Tier } from '@/data/games';
 import { useStore } from '@/state/store';
 
@@ -35,6 +35,7 @@ export default function GameDetailScreen() {
   }
 
   const owned = isUnlocked(game.id);
+  const features = getFeaturesForGame(game);
   const packages = getPackages(game);
   const chosen = packages.find((p) => p.tier === selected)!;
 
@@ -73,7 +74,7 @@ export default function GameDetailScreen() {
         <View style={styles.body}>
           <SectionLabel>Everything Genie can do</SectionLabel>
 
-          {FEATURES.map((feature) => {
+          {features.map((feature) => {
             const locked = !feature.free && !owned;
             return (
               <Pressable

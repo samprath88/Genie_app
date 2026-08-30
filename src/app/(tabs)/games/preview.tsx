@@ -1,7 +1,16 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Artwork } from '@/components/artwork';
@@ -24,6 +33,7 @@ interface IntroData {
 export default function PreviewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const tabBarClearance = useTabBarClearance();
   const { isUnlocked, autoplay, setCurrentGame } = useStore();
   const [intro, setIntro] = useState<IntroData | null>(null);
@@ -94,7 +104,15 @@ export default function PreviewScreen() {
           <Artwork seed={`${game.id}-board`} radius={0} style={styles.board} />
         )}
 
-        <View style={[styles.overlay, { paddingTop: insets.top + Spacing.two }]}>
+        <View
+          style={[
+            styles.overlay,
+            // minHeight (not flex: 1) fills the screen below the hero image in the
+            // common case, but — unlike flex: 1 inside a ScrollView — still lets
+            // taller content (a long intro, etc.) grow past it and actually scroll,
+            // instead of getting clipped at the bottom of the screen.
+            { minHeight: windowHeight - 320, paddingTop: insets.top + Spacing.two },
+          ]}>
           <View style={styles.topRow}>
             <Pressable
               onPress={() => (router.canGoBack() ? router.back() : router.replace(`/games/${game.id}`))}
@@ -189,7 +207,6 @@ const styles = StyleSheet.create({
   board: { flex: 1, minHeight: 640, borderRadius: 0, justifyContent: 'flex-start' },
   heroImage: { width: '100%', height: 320, borderRadius: 0 },
   overlay: {
-    flex: 1,
     backgroundColor: 'rgba(18,26,38,0.45)',
     paddingHorizontal: Layout.screenPadding,
     paddingBottom: Spacing.five,

@@ -100,7 +100,9 @@ export default function GamesScreen() {
                 <View style={styles.bannerRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.bannerTitle}>Games</Text>
-                    <Text style={styles.bannerSubtitle}>Browse the shelf · pick a game to buy</Text>
+                    <Text style={styles.bannerSubtitle}>
+                      Pick a game to buy, or pick an instruction set to buy
+                    </Text>
                   </View>
                   <BasketButton />
                 </View>

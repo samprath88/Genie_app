@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Artwork } from '@/components/artwork';
 import { Card, ListRow, Pill, SectionLabel, Toggle } from '@/components/ui';
 import { Colors, Layout, Radius, Spacing, Type } from '@/constants/theme';
-import { GAME_INTERESTS, NARRATOR_VOICES } from '@/data/content';
+import { AI_PROVIDERS, GAME_INTERESTS, NARRATOR_VOICES } from '@/data/content';
 import { GAMES, priceLabel } from '@/data/games';
 import { useTabBarClearance } from '@/hooks/useTabBarClearance';
 import { USER, useStore } from '@/state/store';
@@ -16,7 +16,7 @@ export default function ProfileScreen() {
   const tabBarClearance = useTabBarClearance();
   const {
     purchasedGames, resetPurchases, narratorVoice, setNarratorVoice, autoplay, setAutoplay,
-    interests, toggleInterest, showToast,
+    aiProvider, setAiProvider, interests, toggleInterest, showToast,
   } = useStore();
 
   const owned = GAMES.filter((g) => purchasedGames.includes(g.id));
@@ -70,6 +70,42 @@ export default function ProfileScreen() {
             </View>
             <Toggle value={autoplay} onValueChange={setAutoplay} />
           </View>
+        </Card>
+
+        <SectionLabel style={styles.sectionSpacer}>AI provider</SectionLabel>
+        <Text style={styles.aiProviderHint}>Choose which AI powers Genie</Text>
+        <Card padded={false}>
+          {AI_PROVIDERS.map((option, i) => {
+            const active = aiProvider === option.key;
+            return (
+              <Pressable
+                key={option.key}
+                onPress={() => setAiProvider(option.key)}
+                style={({ pressed }) => [
+                  styles.providerRow,
+                  i < AI_PROVIDERS.length - 1 && styles.providerRowBorder,
+                  active && styles.providerRowActive,
+                  pressed && { opacity: 0.85 },
+                ]}>
+                <View style={[styles.radio, active && styles.radioActive]}>
+                  {active ? <Ionicons name="checkmark" size={13} color={Colors.onPrimary} /> : null}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.providerTitleRow}>
+                    <Text style={[styles.providerLabel, active && styles.providerLabelActive]}>
+                      {option.label}
+                    </Text>
+                    {option.recommended && (
+                      <View style={styles.recommendedBadge}>
+                        <Text style={styles.recommendedBadgeText}>RECOMMENDED</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.providerDescription}>{option.description}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </Card>
 
         <SectionLabel style={styles.sectionSpacer}>Account</SectionLabel>
@@ -234,6 +270,56 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.four,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+  },
+
+  aiProviderHint: {
+    fontFamily: Type.body,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: -Spacing.two,
+    marginBottom: Spacing.three,
+  },
+  providerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.three,
+    padding: Spacing.four,
+  },
+  providerRowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.border },
+  providerRowActive: { backgroundColor: Colors.primarySoft },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+  },
+  radioActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  providerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, flexWrap: 'wrap' },
+  providerLabel: { fontFamily: Type.body, fontSize: 15, fontWeight: '700', color: Colors.text },
+  providerLabelActive: { fontWeight: '800' },
+  providerDescription: {
+    fontFamily: Type.body,
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  recommendedBadge: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 2,
+  },
+  recommendedBadgeText: {
+    fontFamily: Type.body,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: Colors.onPrimary,
   },
 
   emptyText: { fontFamily: Type.body, fontSize: 13.5, color: Colors.textSecondary },

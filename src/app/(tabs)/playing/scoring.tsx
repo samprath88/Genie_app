@@ -2,6 +2,14 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { ModeSwitcher } from '@/components/ModeSwitcher';
 import { useOverlays } from '@/components/overlays';
@@ -24,13 +32,83 @@ interface ScoreField {
 }
 
 interface PlayerScore {
+  player_id: number;
   player_name: string;
   [key: string]: any;
 }
 
+const MIN_PLAYERS = 2;
+const MAX_PLAYERS = 4;
+
+const CONFETTI_COLORS = [Colors.primary, Colors.secondary, '#4E7B4E', '#2F6DB5', '#E0A33E'];
+
+function ConfettiPiece({ index }: { index: number }) {
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withDelay(
+      index * 35,
+      withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) }),
+    );
+  }, [index, progress]);
+
+  const angle = (index / 14) * Math.PI * 2;
+  const distance = 80 + (index % 3) * 22;
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const p = progress.value;
+    return {
+      opacity: 1 - p,
+      transform: [
+        { translateX: Math.cos(angle) * distance * p },
+        { translateY: Math.sin(angle) * distance * p + 70 * p * p },
+        { rotate: `${p * 360}deg` },
+        { scale: 1 - p * 0.3 },
+      ],
+    };
+  });
+
+  return (
+    <Animated.View
+      style={[styles.confettiPiece, { backgroundColor: CONFETTI_COLORS[index % CONFETTI_COLORS.length] }, animatedStyle]}
+    />
+  );
+}
+
+function WinnerCard({ name, score }: { name: string; score: number }) {
+  const scale = useSharedValue(0.6);
+  const opacity = useSharedValue(0);
+
+  useEffect(() => {
+    scale.value = withSpring(1, { damping: 9, stiffness: 120 });
+    opacity.value = withTiming(1, { duration: 250 });
+  }, [scale, opacity]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <View style={styles.winnerWrap}>
+      <View style={styles.confettiLayer} pointerEvents="none">
+        {Array.from({ length: 14 }).map((_, i) => (
+          <ConfettiPiece key={i} index={i} />
+        ))}
+      </View>
+      <Animated.View style={[styles.winnerCard, animatedStyle]}>
+        <Text style={styles.trophy}>🏆</Text>
+        <Text style={styles.winnerLabel}>WINNER</Text>
+        <Text style={styles.winnerName}>{name}</Text>
+        <Text style={styles.winnerScore}>{score} points</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
 export default function ScoringScreen() {
   const tabBarClearance = useTabBarClearance();
-  const { players, resetScores, currentGame } = useStore();
+  const { players, resetScores, addPlayer, removePlayer, currentGame } = useStore();
   const { openAskGenie } = useOverlays();
 
   const [template, setTemplate] = useState<{ playerFields?: ScoreField[]; scoreFields?: ScoreField[] } | null>(null);
@@ -53,12 +131,6 @@ export default function ScoringScreen() {
 
         const data = await response.json();
         setTemplate(data);
-
-        const initialScores = players.map((p) => ({
-          player_name: p.name,
-          ...Object.fromEntries(data.scoreFields?.map((f: ScoreField) => [f.key, 0]) || []),
-        }));
-        setPlayerScores(initialScores);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load template');
         console.error('Error fetching template:', err);
@@ -68,7 +140,26 @@ export default function ScoringScreen() {
     };
 
     fetchTemplate();
-  }, [currentGame, players]);
+  }, [currentGame]);
+
+  // Keeps playerScores aligned to the current players list by id, so adding or
+  // removing a player doesn't wipe everyone else's already-entered scores —
+  // only the affected player's entry is added or dropped.
+  useEffect(() => {
+    if (!template) return;
+    setPlayerScores((prev) => {
+      const byId = new Map(prev.map((s) => [s.player_id, s]));
+      return players.map((p) => {
+        const existing = byId.get(p.id);
+        if (existing) return { ...existing, player_name: p.name };
+        return {
+          player_id: p.id,
+          player_name: p.name,
+          ...Object.fromEntries(template.scoreFields?.map((f) => [f.key, 0]) || []),
+        };
+      });
+    });
+  }, [players, template]);
 
   const handleScoreChange = (playerIndex: number, fieldKey: string, value: any) => {
     const updated = [...playerScores];
@@ -127,7 +218,10 @@ export default function ScoringScreen() {
 
   const winnerEntry = Object.entries(calculatedScores).sort((a, b) => b[1] - a[1])[0];
   const winnerIdFromScores = winnerEntry?.[0];
-  const winner = winnerIdFromScores ? players.find((p) => p.id === winnerIdFromScores) : null;
+  // Object keys are always strings, but Player.id is a number — compare as strings.
+  const winner = winnerIdFromScores
+    ? players.find((p) => String(p.id) === winnerIdFromScores)
+    : null;
 
   return (
     <View style={styles.root}>
@@ -147,15 +241,33 @@ export default function ScoringScreen() {
 
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarClearance }]}>
         {winner ? (
-          <View style={styles.winnerCard}>
-            <Text style={styles.trophy}>🏆</Text>
-            <Text style={styles.winnerLabel}>WINNER</Text>
-            <Text style={styles.winnerName}>{winner.name}</Text>
-            <Text style={styles.winnerScore}>{calculatedScores[winner.id]} points</Text>
-          </View>
+          <WinnerCard key={winnerIdFromScores} name={winner.name} score={calculatedScores[winner.id]} />
         ) : null}
 
-        <SectionLabel style={{ marginTop: winner ? Spacing.five : 0 }}>Players</SectionLabel>
+        <View style={[styles.playersHeader, { marginTop: winner ? Spacing.five : 0 }]}>
+          <SectionLabel style={{ marginBottom: 0 }}>Players</SectionLabel>
+          <Pressable
+            onPress={addPlayer}
+            disabled={players.length >= MAX_PLAYERS}
+            style={({ pressed }) => [
+              styles.addPlayerButton,
+              players.length >= MAX_PLAYERS && styles.addPlayerButtonDisabled,
+              pressed && { opacity: 0.7 },
+            ]}>
+            <Ionicons
+              name="person-add"
+              size={13}
+              color={players.length >= MAX_PLAYERS ? Colors.textTertiary : Colors.primary}
+            />
+            <Text
+              style={[
+                styles.addPlayerText,
+                players.length >= MAX_PLAYERS && styles.addPlayerTextDisabled,
+              ]}>
+              Add player
+            </Text>
+          </Pressable>
+        </View>
 
         {players.map((player, idx) => (
           <View
@@ -163,7 +275,17 @@ export default function ScoringScreen() {
             style={[styles.playerCard, winner?.id === player.id ? styles.playerCardWinner : undefined]}>
             <View style={[styles.playerColor, { backgroundColor: player.color }]} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.playerName}>{player.name}</Text>
+              <View style={styles.playerNameRow}>
+                <Text style={styles.playerName}>{player.name}</Text>
+                {players.length > MIN_PLAYERS && (
+                  <Pressable
+                    onPress={() => removePlayer(player.id)}
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.removePlayer, pressed && { opacity: 0.7 }]}>
+                    <Ionicons name="close" size={13} color={Colors.textTertiary} />
+                  </Pressable>
+                )}
+              </View>
 
               {template.scoreFields?.map((field) => (
                 <View key={field.key} style={styles.scoreField}>
@@ -302,6 +424,58 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
   },
 
+  winnerWrap: { position: 'relative' },
+  confettiLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  confettiPiece: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 2,
+  },
+
+  playersHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.three,
+  },
+  addPlayerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: 6,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.primarySoft,
+  },
+  addPlayerButtonDisabled: { backgroundColor: Colors.backgroundInset },
+  addPlayerText: { fontFamily: Type.body, fontSize: 12, fontWeight: '700', color: Colors.text },
+  addPlayerTextDisabled: { color: Colors.textTertiary },
+
+  playerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: Spacing.two,
+  },
+  removePlayer: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.backgroundInset,
+  },
+
   playerCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -316,7 +490,7 @@ const styles = StyleSheet.create({
   },
   playerCardWinner: { borderColor: Colors.primary, borderWidth: 1.5 },
   playerColor: { width: 5, height: 80, borderRadius: 3 },
-  playerName: { fontFamily: Type.body, fontSize: 15, fontWeight: '700', color: Colors.text, marginBottom: Spacing.two },
+  playerName: { fontFamily: Type.body, fontSize: 15, fontWeight: '700', color: Colors.text },
 
   scoreField: { marginBottom: Spacing.two },
   scoreLabel: { fontFamily: Type.body, fontSize: 12, color: Colors.textSecondary, marginBottom: 4 },

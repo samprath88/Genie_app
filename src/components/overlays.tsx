@@ -8,7 +8,14 @@ import { AudioStudioModule, useAudioRecorder as useAudioStudioRecorder } from '@
 import { setAudioModeAsync } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { fetch as expoFetch } from 'expo/fetch';
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import {
   ActivityIndicator,
   Image,
@@ -23,7 +30,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-  Body, GenieMark, Muted, Waveform,
+  FormattedText, GenieMark, Muted, Waveform,
 } from '@/components/ui';
 import { Colors, Layout, Radius, Shadow, Spacing, Type } from '@/constants/theme';
 import { DEFAULT_ANSWER, type QA } from '@/data/content';
@@ -33,6 +40,16 @@ import { stopAllNarration, useNarration } from '@/hooks/useNarration';
 import { useStore } from '@/state/store';
 
 const API_BASE = 'http://192.168.1.101:8000';
+
+// Voice-activity detection for hands-free recording: stop automatically once
+// the user has spoken and then gone quiet, instead of requiring a manual
+// stop. Tuned for a normal room — quieter speakers or noisy environments may
+// need SILENCE_DB_THRESHOLD adjusted (less negative = more sensitive to
+// small sounds counting as "still talking"; more negative = requires quieter
+// silence before it stops).
+const SILENCE_MS = 2000;
+const SILENCE_DB_THRESHOLD = -45;
+const MAX_RECORDING_MS = 60_000;
 
 interface ComponentImage {
   label: string;
@@ -105,12 +122,56 @@ function findTopComponentMatch(
   return topMatch?.image || null;
 }
 
+/** Mic button that gently pulses while listening — tap again to stop manually. */
+function PulsingMicButton({
+  recording,
+  loading,
+  onPress,
+}: {
+  recording: boolean;
+  loading: boolean;
+  onPress: () => void;
+}) {
+  const pulse = useSharedValue(1);
+
+  useEffect(() => {
+    if (recording) {
+      pulse.value = withRepeat(
+        withSequence(withTiming(1.15, { duration: 500 }), withTiming(1, { duration: 500 })),
+        -1,
+        true,
+      );
+    } else {
+      pulse.value = withTiming(1, { duration: 150 });
+    }
+  }, [recording, pulse]);
+
+  const animatedStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={loading}
+      style={({ pressed }) => [
+        styles.micButton,
+        recording && styles.micButtonActive,
+        (pressed || loading) && { opacity: 0.7 },
+      ]}>
+      <Animated.View style={animatedStyle}>
+        <Ionicons name={recording ? 'stop' : 'mic'} size={18} color={Colors.onPrimary} />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose: () => void }) {
   const insets = useSafeAreaInsets();
+  const { aiProvider } = useStore();
   const gameToLoad = gameName || '';
   const { images } = useGameImages(gameToLoad);
   const [question, setQuestion] = useState('');
   const [exchange, setExchange] = useState<QA>({ question: '', answer: '' });
+  const [historyTurns, setHistoryTurns] = useState<{ role: 'user' | 'assistant'; content: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
@@ -121,17 +182,30 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
     useAudioStudioRecorder();
   const narration = useNarration();
 
+  // VAD bookkeeping — refs, not state, since these are read/written on every
+  // ~250ms analysis tick and don't need to trigger re-renders themselves.
+  const hasSpokenRef = useRef(false);
+  const lastSoundAtRef = useRef(0);
+  const recordingStartedAtRef = useRef(0);
+  const stoppingRef = useRef(false);
+
   useEffect(() => {
     if (gameName) {
       setExchange({ question: '', answer: '' });
       setQuestion('');
       setError(null);
+      setHistoryTurns([]);
       // Whatever's narrating — this modal's own answer audio, or a screen behind
       // it — should stop the moment Ask Genie opens, since voice input is on offer.
       stopAllNarration();
       setRecording(false);
       setRelatedImage(null);
       setShowImageModal(false);
+    } else {
+      // Closing/minimizing the modal (gameName -> null) doesn't unmount this
+      // component — it just stops rendering — so the answer audio must be
+      // stopped explicitly here, or it keeps playing behind the closed sheet.
+      narration.stop();
     }
     // Reopening for a different game/question should reset — not on every narration state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,6 +231,11 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         allowsRecording: true,
       });
 
+      hasSpokenRef.current = false;
+      stoppingRef.current = false;
+      recordingStartedAtRef.current = Date.now();
+      lastSoundAtRef.current = Date.now();
+
       // Records LINEAR16 mono WAV directly at the sample rate Google STT
       // wants, so the backend no longer needs to transcode AAC before sending it.
       await startAudioStudioRecording({
@@ -164,6 +243,32 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         channels: 1,
         encoding: 'pcm_16bit',
         output: { primary: { enabled: true } },
+        enableProcessing: true,
+        intervalAnalysis: 250,
+        // We only need the live per-tick reading, not a growing history of
+        // every chunk for the whole recording.
+        keepFullAnalysis: false,
+        onAudioAnalysis: async (event: any) => {
+          if (stoppingRef.current) return;
+
+          const points = event?.dataPoints ?? [];
+          const now = Date.now();
+          const heardSpeech = points.some((p: any) => typeof p.dB === 'number' && p.dB > SILENCE_DB_THRESHOLD);
+
+          if (heardSpeech) {
+            hasSpokenRef.current = true;
+            lastSoundAtRef.current = now;
+          }
+
+          const silentFor = now - lastSoundAtRef.current;
+          const totalDuration = now - recordingStartedAtRef.current;
+          const wentQuietAfterSpeaking = hasSpokenRef.current && silentFor >= SILENCE_MS;
+
+          if (wentQuietAfterSpeaking || totalDuration >= MAX_RECORDING_MS) {
+            stoppingRef.current = true;
+            await stopRecording();
+          }
+        },
       });
       setRecording(true);
     } catch (err) {
@@ -175,6 +280,7 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
 
   const stopRecording = async () => {
     try {
+      stoppingRef.current = true;
       const result = await stopAudioStudioRecording();
       setRecording(false);
 
@@ -228,8 +334,9 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
       setRelatedImage(null);
 
       const gameKey = gameName.toLowerCase().replace(/\s+/g, '_');
-      console.log('Asking Genie:', { game: gameKey, question: trimmed });
+      console.log('Asking Genie:', { game: gameKey, question: trimmed, provider: aiProvider });
 
+      const requestStartedAt = Date.now();
       const response = await expoFetch(`${API_BASE}/games/${gameKey}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -237,9 +344,11 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
           game: gameKey,
           question: trimmed,
           mode: 'qa',
-          provider: 'deepseek',
+          provider: aiProvider,
+          history: historyTurns,
         }),
       });
+      console.log(`[ask timing] provider=${aiProvider} round-trip=${Date.now() - requestStartedAt}ms`);
 
       console.log('Response status:', response.status);
 
@@ -256,6 +365,11 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
         question: trimmed,
         answer,
       });
+      setHistoryTurns((prev) => [
+        ...prev,
+        { role: 'user', content: trimmed },
+        { role: 'assistant', content: answer },
+      ]);
 
       // Find the top component match in the answer
       if (images && images.components) {
@@ -317,7 +431,7 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
                 <>
                   {exchange.answer && (
                     <>
-                      <Body style={{ marginTop: Spacing.four }}>{exchange.answer}</Body>
+                      <FormattedText text={exchange.answer} style={{ marginTop: Spacing.four }} />
 
                       {relatedImage && (
                         <Pressable
@@ -370,12 +484,19 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
               )}
             </ScrollView>
 
+            {recording && (
+              <View style={styles.listeningRow}>
+                <Waveform color={Colors.primary} height={14} />
+                <Text style={styles.listeningText}>Listening — pause when you're done</Text>
+              </View>
+            )}
+
             <View style={[styles.askInputRow, { paddingBottom: insets.bottom + Spacing.four }]}>
               <TextInput
                 value={question}
                 onChangeText={setQuestion}
-                placeholder="Type your question..."
-                placeholderTextColor={Colors.textTertiary}
+                placeholder={recording ? 'Listening...' : 'Type your question...'}
+                placeholderTextColor={recording ? Colors.primary : Colors.textTertiary}
                 style={styles.askInput}
                 returnKeyType="send"
                 onSubmitEditing={() => ask(question)}
@@ -383,20 +504,20 @@ function AskGenieModal({ gameName, onClose }: { gameName: string | null; onClose
               />
               <Pressable
                 onPress={() => ask(question)}
-                disabled={loading}
-                style={({ pressed }) => [styles.sendButton, (pressed || loading) && { opacity: 0.7 }]}>
+                disabled={loading || recording}
+                style={({ pressed }) => [
+                  styles.sendButton,
+                  (pressed || loading || recording) && { opacity: 0.7 },
+                ]}>
                 <Ionicons name="arrow-up" size={18} color={Colors.onPrimary} />
               </Pressable>
-              <Pressable
+              {/* Tap to start — recording stops itself once you've spoken and gone quiet
+                  for a couple of seconds. Tap again any time to stop manually instead. */}
+              <PulsingMicButton
+                recording={recording}
+                loading={loading}
                 onPress={recording ? stopRecording : startRecording}
-                disabled={loading}
-                style={({ pressed }) => [
-                  styles.micButton,
-                  recording && styles.micButtonActive,
-                  (pressed || loading) && { opacity: 0.7 },
-                ]}>
-                <Ionicons name={recording ? 'stop' : 'mic'} size={18} color={Colors.onPrimary} />
-              </Pressable>
+              />
             </View>
           </View>
         </View>
@@ -584,6 +705,16 @@ const styles = StyleSheet.create({
 
   speakingRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.two, marginTop: Spacing.four },
   speakingText: { fontFamily: Type.body, fontSize: 12.5, fontStyle: 'italic', color: Colors.primary },
+
+  listeningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.two,
+    paddingTop: Spacing.two,
+    paddingHorizontal: Spacing.four,
+  },
+  listeningText: { fontFamily: Type.body, fontSize: 12.5, fontWeight: '600', color: Colors.primary },
 
   playButton: {
     flexDirection: 'row',

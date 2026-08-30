@@ -33,6 +33,67 @@ export function SectionLabel({ children, style }: { children: string; style?: St
   return <Text style={[styles.sectionLabel, style]}>{children.toUpperCase()}</Text>;
 }
 
+/**
+ * Renders `**bold**` spans within a line of text as bold runs.
+ *
+ * Smaller/local models sometimes don't pair asterisks cleanly — instead of
+ * "The **role cards**" they'll emit "The **role* cards*", scattering a stray
+ * `*` after nearly every word. Only a clean `**...**` pair is ever rendered
+ * as bold; anything outside a matched pair has its asterisks stripped
+ * outright rather than shown literally, since they're noise, not formatting.
+ */
+function renderInlineBold(line: string, keyPrefix: string) {
+  return line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? (
+      <Text key={`${keyPrefix}-${i}`} style={{ fontWeight: '700' }}>
+        {part.slice(2, -2)}
+      </Text>
+    ) : (
+      part.replace(/\*/g, '')
+    ),
+  );
+}
+
+/**
+ * Lightweight formatter for AI answers: recognizes `**bold**`, numbered
+ * lines ("1. ..."), and bulleted lines ("- "/"* ...") without pulling in a
+ * full markdown dependency. Anything else renders as a plain paragraph.
+ */
+export function FormattedText({ text, style }: { text: string; style?: StyleProp<ViewStyle> }) {
+  const lines = text.split('\n').filter((line) => line.trim().length > 0);
+
+  return (
+    <View style={style}>
+      {lines.map((line, i) => {
+        const numbered = line.match(/^\s*(\d+)[.)]\s+(.*)/);
+        const bulleted = line.match(/^\s*[-*•]\s+(.*)/);
+
+        if (numbered) {
+          return (
+            <View key={i} style={styles.formattedListRow}>
+              <Text style={styles.formattedMarker}>{numbered[1]}.</Text>
+              <Text style={styles.formattedBody}>{renderInlineBold(numbered[2], `${i}`)}</Text>
+            </View>
+          );
+        }
+        if (bulleted) {
+          return (
+            <View key={i} style={styles.formattedListRow}>
+              <Text style={styles.formattedMarker}>•</Text>
+              <Text style={styles.formattedBody}>{renderInlineBold(bulleted[1], `${i}`)}</Text>
+            </View>
+          );
+        }
+        return (
+          <Text key={i} style={styles.formattedParagraph}>
+            {renderInlineBold(line, `${i}`)}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
+
 /* --------------------------------------------------------------- surfaces -- */
 
 export function Card({
@@ -306,6 +367,16 @@ const styles = StyleSheet.create({
   },
   body: { fontFamily: Type.body, fontSize: 15, lineHeight: 22, color: Colors.text },
   muted: { fontFamily: Type.body, fontSize: 13, lineHeight: 19, color: Colors.textSecondary },
+  formattedParagraph: {
+    fontFamily: Type.body,
+    fontSize: 15,
+    lineHeight: 22,
+    color: Colors.text,
+    marginBottom: Spacing.two,
+  },
+  formattedListRow: { flexDirection: 'row', gap: Spacing.two, marginBottom: Spacing.one },
+  formattedMarker: { fontFamily: Type.body, fontSize: 15, lineHeight: 22, fontWeight: '700', color: Colors.primary },
+  formattedBody: { flex: 1, fontFamily: Type.body, fontSize: 15, lineHeight: 22, color: Colors.text },
   sectionLabel: {
     fontFamily: Type.body,
     fontSize: 11.5,
